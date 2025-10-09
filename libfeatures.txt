@@ -1,0 +1,27 @@
+Supported features:
+
+Primitive types: `int`, `float`, `double`, `char`
+Fixed-width integer types: `uint8_t`, `int64_t`
+Special types: `size_t`, `void`
+Simple enums with explicit values (`Status`)
+Enums with implicit values (`Color`)
+Simple structs (`Point`, `Rectangle`)
+Nested structs (`BoundingBox` contains `Point`)
+Complex structs with multiple field types (`Person`)
+Opaque types (forward declarations: `InternalState`)
+Basic unions (`DataUnion`)
+Single pointers (`int*`, `char*`)
+Double pointers (`int**`)
+Const pointers (`const char*`, `const int*`)
+Function pointers (`Callback`, `Comparator`)
+Void functions with no parameters
+Functions returning various types
+Functions with multiple parameters
+Functions passing structs by value
+Functions passing structs by pointer
+Functions with mixed parameter types
+Variadic functions
+Array parameters (decay to pointers)
+Exported functions marked with `__attribute__((visibility("default")))`
+Hidden/internal functions without visibility attribute
+Compiled with `-fvisibility=hidden` to hide by default

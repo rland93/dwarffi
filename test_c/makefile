@@ -4,10 +4,10 @@ CFLAGS = -Wall -Wextra -fPIC -g -O0
 
 ifeq ($(UNAME_S),Linux)
     LIB_NAME = libtestlib.so
-    LDFLAGS = -shared -fvisibility=hidden
+    LDFLAGS = -shared -fvisibility=hidden -g
 else ifeq ($(UNAME_S),Darwin)
     LIB_NAME = libtestlib.dylib
-    LDFLAGS = -dynamiclib -fvisibility=hidden
+    LDFLAGS = -dynamiclib -fvisibility=hidden -g
 else
     $(error Unsupported platform: $(UNAME_S))
 endif
