@@ -1,14 +1,12 @@
+use crate::reader;
 use crate::symbol_reader::SymbolReader;
+use crate::type_registry::TypeRegistry;
 use crate::type_resolver::TypeResolver;
 use crate::types::{FunctionSignature, Parameter};
-use anyhow::{Context, Result};
-use gimli::{AttributeValue, Dwarf, EndianRcSlice, Reader, RunTimeEndian};
+use anyhow::Result;
+use gimli::{AttributeValue, Dwarf, Reader};
 use log;
-use object::{Object, ObjectSection};
 use std::collections::HashSet;
-use std::rc::Rc;
-
-type DwarfReader = EndianRcSlice<RunTimeEndian>;
 
 pub struct DwarfAnalyzer {
     data: Vec<u8>,
@@ -21,15 +19,7 @@ impl DwarfAnalyzer {
 
     /// load the dynamic library from file path
     pub fn from_file(path: &std::path::Path) -> Result<Self> {
-        log::debug!("load file: {}", path.display());
-
-        let file = std::fs::File::open(path)
-            .with_context(|| format!("failed to open file: {}", path.display()))?;
-
-        let mmap = unsafe { memmap2::Mmap::map(&file)? };
-        let data = mmap.to_vec();
-
-        log::debug!("file load success, size: {} bytes", data.len());
+        let data = reader::load_file(path)?;
         Ok(Self::new(data))
     }
 
@@ -43,52 +33,9 @@ impl DwarfAnalyzer {
 
     /// extract all function signatures from DWARF debug info
     pub fn extract_signatures(&self, exported_only: bool) -> Result<Vec<FunctionSignature>> {
-        log::debug!("start extract symbols, exported_only: {}", exported_only);
+        let section_loader = reader::object_section_loader(&self.data)?;
 
-        let object_file = object::File::parse(&*self.data)?;
-        log::debug!("parse object file success");
-
-        let endian = if object_file.is_little_endian() {
-            RunTimeEndian::Little
-        } else {
-            RunTimeEndian::Big
-        };
-        log::debug!(
-            "endianness: {:?}",
-            if endian == RunTimeEndian::Little {
-                "little endian"
-            } else {
-                "big endian"
-            }
-        );
-
-        // loader function for extracting DWARF sections from the object file
-        let load_section = |id: gimli::SectionId| -> Result<DwarfReader> {
-            let section_name = id.name();
-            let section_data = match object_file.section_by_name(section_name) {
-                Some(section) => {
-                    match section.uncompressed_data() {
-                        Ok(data) => data,
-                        // could not decompress
-                        Err(_) => {
-                            log::warn!("decompress section fail, section: {}", section_name);
-                            std::borrow::Cow::Borrowed(&[][..])
-                        }
-                    }
-                }
-                // name does not exist
-                None => std::borrow::Cow::Borrowed(&[][..]),
-            };
-
-            // copies out of section data
-            let owned_data = section_data.into_owned();
-            let rc_data = Rc::from(owned_data);
-            let reader = EndianRcSlice::new(rc_data, endian);
-
-            Ok(reader)
-        };
-
-        let dwarf = Dwarf::load(load_section)?;
+        let dwarf = Dwarf::load(section_loader)?;
         log::debug!("DWARF data load success");
 
         // export only?
@@ -125,10 +72,115 @@ impl DwarfAnalyzer {
         Ok(signatures)
     }
 
+    /// build a structured type registry alongside function extraction
+    pub fn extract_type_registry(&self, exported_only: bool) -> Result<TypeRegistry> {
+        let section_loader = reader::object_section_loader(&self.data)?;
+        let dwarf = Dwarf::load(section_loader)?;
+        log::debug!("DWARF data load success");
+
+        // export only?
+        let exported_symbols = if exported_only {
+            Some(self.get_exported_symbols()?)
+        } else {
+            None
+        };
+
+        let mut combined_registry = TypeRegistry::new();
+        let mut unit_iter = dwarf.units();
+        let mut unit_count = 0;
+
+        while let Some(header) = unit_iter.next()? {
+            unit_count += 1;
+            log::debug!("processing compilation unit {} for types", unit_count);
+
+            let unit = dwarf.unit(header)?;
+            let mut type_resolver = TypeResolver::new(&dwarf, &unit);
+
+            // Trigger type resolution by extracting function signatures
+            // This builds the type registry as a side effect
+            let _sigs = self.extract_functions_from_unit_with_resolver(
+                &dwarf,
+                &unit,
+                &exported_symbols,
+                &mut type_resolver,
+            )?;
+
+            // Merge registry from this unit
+            let unit_registry = type_resolver.into_registry();
+            combined_registry.merge(unit_registry);
+
+            log::debug!("merged types from unit {}", unit_count);
+        }
+
+        log::info!(
+            "processed {} compilation units, extracted {} types",
+            unit_count,
+            combined_registry.len()
+        );
+        Ok(combined_registry)
+    }
+
+    // Helper method that accepts a type_resolver parameter
+    fn extract_functions_from_unit_with_resolver(
+        &self,
+        dwarf: &Dwarf<reader::DwarfReader>,
+        unit: &gimli::Unit<reader::DwarfReader>,
+        exported_symbols: &Option<HashSet<String>>,
+        type_resolver: &mut TypeResolver<reader::DwarfReader>,
+    ) -> Result<Vec<FunctionSignature>> {
+        let mut signatures = Vec::new();
+        let mut entries = unit.entries();
+
+        while let Some((_, entry)) = entries.next_dfs()? {
+            if entry.tag() != gimli::DW_TAG_subprogram {
+                continue;
+            }
+
+            let name = match self.get_function_name(dwarf, unit, entry) {
+                Some(n) => n,
+                None => continue,
+            };
+
+            let is_exported = exported_symbols
+                .as_ref()
+                .map(|symbols| symbols.contains(&name) || symbols.contains(&format!("_{}", name)))
+                .unwrap_or(true);
+
+            if exported_symbols.is_some() && !is_exported {
+                continue;
+            }
+
+            // Extract return type (this triggers type registry building)
+            let return_type = if let Some(type_attr) = entry.attr(gimli::DW_AT_type)? {
+                if let AttributeValue::UnitRef(offset) = type_attr.value() {
+                    type_resolver.resolve_type(offset)?
+                } else {
+                    "void".to_string()
+                }
+            } else {
+                "void".to_string()
+            };
+
+            // Extract parameters (this also triggers type registry building)
+            let (parameters, is_variadic) =
+                self.extract_parameters(dwarf, unit, entry, type_resolver)?;
+
+            signatures.push(FunctionSignature {
+                name: name.clone(),
+                return_type,
+                parameters,
+                is_variadic,
+                is_exported,
+            });
+        }
+
+        Ok(signatures)
+    }
+
     fn extract_functions_from_unit(
         &self,
-        dwarf: &Dwarf<DwarfReader>,
-        unit: &gimli::Unit<DwarfReader>,
+        dwarf: &Dwarf<reader::DwarfReader>,
+        unit: &gimli::Unit<reader::DwarfReader>,
         exported_symbols: &Option<HashSet<String>>,
     ) -> Result<Vec<FunctionSignature>> {
         let mut signatures = Vec::new();
@@ -230,9 +282,9 @@ impl DwarfAnalyzer {
     // unstripped debug information!
     fn get_function_name(
         &self,
-        dwarf: &Dwarf<DwarfReader>,
-        unit: &gimli::Unit<DwarfReader>,
-        entry: &gimli::DebuggingInformationEntry<DwarfReader>,
+        dwarf: &Dwarf<reader::DwarfReader>,
+        unit: &gimli::Unit<reader::DwarfReader>,
+        entry: &gimli::DebuggingInformationEntry<reader::DwarfReader>,
     ) -> Option<String> {
         // skip artificial
         if Self::attr_flag_is_true(entry.attr(gimli::DW_AT_artificial).ok().flatten()) {
@@ -283,9 +335,9 @@ impl DwarfAnalyzer {
 
     /// helper to grab the name from an entry
     fn read_entry_name(
-        dwarf: &Dwarf<DwarfReader>,
-        unit: &gimli::Unit<DwarfReader>,
-        entry: &gimli::DebuggingInformationEntry<DwarfReader>,
+        dwarf: &Dwarf<reader::DwarfReader>,
+        unit: &gimli::Unit<reader::DwarfReader>,
+        entry: &gimli::DebuggingInformationEntry<reader::DwarfReader>,
     ) -> Option<String> {
         // linkage names
         if let Ok(Some(attr)) = entry.attr(gimli::DW_AT_linkage_name) {
@@ -308,9 +360,9 @@ impl DwarfAnalyzer {
     /// contain the name. this will resolve a name from such entries by
     /// following the reference.
     fn resolve_name_reference(
-        dwarf: &Dwarf<DwarfReader>,
-        unit: &gimli::Unit<DwarfReader>,
-        attr: Option<gimli::Attribute<DwarfReader>>,
+        dwarf: &Dwarf<reader::DwarfReader>,
+        unit: &gimli::Unit<reader::DwarfReader>,
+        attr: Option<gimli::Attribute<reader::DwarfReader>>,
     ) -> Option<String> {
         let attr = attr?;
 
@@ -328,7 +380,7 @@ impl DwarfAnalyzer {
     }
 
     /// check if an attribute is a flag and is true
-    fn attr_flag_is_true(attr: Option<gimli::Attribute<DwarfReader>>) -> bool {
+    fn attr_flag_is_true(attr: Option<gimli::Attribute<reader::DwarfReader>>) -> bool {
         let Some(attr) = attr else {
             return false;
         };
@@ -347,9 +399,9 @@ impl DwarfAnalyzer {
 
     /// read a string attribute from an entry
     fn read_attr_string(
-        dwarf: &Dwarf<DwarfReader>,
-        unit: &gimli::Unit<DwarfReader>,
-        attr: &gimli::Attribute<DwarfReader>,
+        dwarf: &Dwarf<reader::DwarfReader>,
+        unit: &gimli::Unit<reader::DwarfReader>,
+        attr: &gimli::Attribute<reader::DwarfReader>,
     ) -> Option<String> {
         // reader of bytes
         let attribute_string = match dwarf.attr_string(unit, attr.value()) {
@@ -391,10 +443,10 @@ impl DwarfAnalyzer {
     /// may encounter types that are not yet analyzed in the parameters.
     fn extract_parameters(
         &self,
-        dwarf: &Dwarf<DwarfReader>,
-        unit: &gimli::Unit<DwarfReader>,
-        func_entry: &gimli::DebuggingInformationEntry<DwarfReader>,
-        type_resolver: &mut TypeResolver<DwarfReader>,
+        dwarf: &Dwarf<reader::DwarfReader>,
+        unit: &gimli::Unit<reader::DwarfReader>,
+        func_entry: &gimli::DebuggingInformationEntry<reader::DwarfReader>,
+        type_resolver: &mut TypeResolver<reader::DwarfReader>,
     ) -> Result<(Vec<Parameter>, bool)> {
         let mut parameters = Vec::new();
         let mut is_variadic = false;

@@ -1,3 +1,4 @@
+use crate::type_registry::{BaseTypeKind, Type, TypeId, TypeRegistry};
 use anyhow::{Result, anyhow};
 use gimli::{AttributeValue, DebuggingInformationEntry, Dwarf, ReaderOffset, Unit, UnitOffset};
 use std::collections::HashMap;
@@ -6,8 +7,10 @@ use std::collections::HashMap;
 pub struct TypeResolver<'dwarf, R: gimli::Reader> {
     dwarf: &'dwarf Dwarf<R>,
     unit: &'dwarf Unit<R>,
-    /// cache of resolved types keyed by offset
+    /// old: string based
     type_cache: HashMap<UnitOffset<R::Offset>, String>,
+    /// new: structured
+    type_registry: TypeRegistry,
 }
 
 impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
@@ -17,6 +20,7 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
             dwarf,
             unit,
             type_cache: HashMap::new(),
+            type_registry: TypeRegistry::new(),
         }
     }
 
@@ -47,6 +51,10 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
             offset.0.into_u64(),
             type_name
         );
+
+        // NEW: Also build structured type registry entry
+        let _ = self.build_type_registry_entry(offset);
+
         Ok(type_name)
     }
 
@@ -192,5 +200,193 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
     /// return the current length of the cache
     pub fn cache_len(&self) -> usize {
         self.type_cache.len()
+    }
+
+    fn build_type_registry_entry(&mut self, offset: UnitOffset<R::Offset>) -> Result<TypeId> {
+        let dwarf_offset = offset.0.into_u64();
+
+        if let Some(type_) = self.type_registry.get_by_dwarf_offset(dwarf_offset) {
+            return Ok(type_.id);
+        }
+
+        let mut entries = self.unit.entries_at_offset(offset)?;
+        let (_, entry) = entries
+            .next_dfs()?
+            .ok_or_else(|| anyhow!("no entry at offset"))?;
+
+        let (kind, pointer_depth, is_const, is_volatile) =
+            self.extract_type_metadata(entry, offset)?;
+
+        let extracted_type = Type {
+            id: 0,
+            kind,
+            pointer_depth,
+            is_const,
+            is_volatile,
+            dwarf_offset: Some(dwarf_offset),
+        };
+
+        let id = self.type_registry.register_type(extracted_type);
+        Ok(id)
+    }
+
+    fn extract_type_metadata(
+        &mut self,
+        _entry: &DebuggingInformationEntry<R>,
+        offset: UnitOffset<R::Offset>,
+    ) -> Result<(BaseTypeKind, usize, bool, bool)> {
+        let mut pointer_depth = 0;
+        let mut is_const = false;
+        let mut is_volatile = false;
+        let mut current_offset = offset;
+
+        loop {
+            let mut entries = self.unit.entries_at_offset(current_offset)?;
+            let (_, entry) = entries
+                .next_dfs()?
+                .ok_or_else(|| anyhow!("no entry at offset"))?;
+
+            match entry.tag() {
+                gimli::DW_TAG_pointer_type => {
+                    pointer_depth += 1;
+                    // Follow to pointee
+                    if let Some(attr) = entry.attr(gimli::DW_AT_type)? {
+                        if let AttributeValue::UnitRef(next_offset) = attr.value() {
+                            current_offset = next_offset;
+                            continue;
+                        }
+                    }
+                    // void* if no type attribute
+                    let kind = BaseTypeKind::Primitive {
+                        name: "void".to_string(),
+                        size: 0,
+                        alignment: 1,
+                    };
+                    return Ok((kind, pointer_depth, is_const, is_volatile));
+                }
+
+                gimli::DW_TAG_const_type => {
+                    is_const = true;
+                    // Follow to inner type
+                    if let Some(attr) = entry.attr(gimli::DW_AT_type)? {
+                        if let AttributeValue::UnitRef(next_offset) = attr.value() {
+                            current_offset = next_offset;
+                            continue;
+                        }
+                    }
+                    // const void if no type
+                    let kind = BaseTypeKind::Primitive {
+                        name: "void".to_string(),
+                        size: 0,
+                        alignment: 1,
+                    };
+                    return Ok((kind, pointer_depth, is_const, is_volatile));
+                }
+
+                gimli::DW_TAG_volatile_type => {
+                    is_volatile = true;
+                    // Follow to inner type
+                    if let Some(attr) = entry.attr(gimli::DW_AT_type)? {
+                        if let AttributeValue::UnitRef(next_offset) = attr.value() {
+                            current_offset = next_offset;
+                            continue;
+                        }
+                    }
+                    let kind = BaseTypeKind::Primitive {
+                        name: "void".to_string(),
+                        size: 0,
+                        alignment: 1,
+                    };
+                    return Ok((kind, pointer_depth, is_const, is_volatile));
+                }
+
+                gimli::DW_TAG_base_type => {
+                    let kind = self.extract_primitive_type(entry)?;
+                    return Ok((kind, pointer_depth, is_const, is_volatile));
+                }
+
+                gimli::DW_TAG_typedef => {
+                    let kind = self.extract_typedef_type(entry)?;
+                    return Ok((kind, pointer_depth, is_const, is_volatile));
+                }
+
+                _ => {
+                    // Placeholder for now
+                    let kind = BaseTypeKind::Primitive {
+                        name: format!("<unknown:{}>", entry.tag()),
+                        size: 0,
+                        alignment: 1,
+                    };
+                    return Ok((kind, pointer_depth, is_const, is_volatile));
+                }
+            }
+        }
+    }
+
+    fn extract_primitive_type(&self, entry: &DebuggingInformationEntry<R>) -> Result<BaseTypeKind> {
+        let name = self.get_name(entry)?;
+        let size = entry
+            .attr(gimli::DW_AT_byte_size)?
+            .and_then(|attr| attr.udata_value())
+            .unwrap_or(0) as usize;
+
+        Ok(BaseTypeKind::Primitive {
+            name,
+            size,
+            alignment: size, // Assume alignment = size for primitives
+        })
+    }
+
+    fn extract_typedef_type(
+        &mut self,
+        entry: &DebuggingInformationEntry<R>,
+    ) -> Result<BaseTypeKind> {
+        let name = self.get_name(entry)?;
+
+        let aliased_type_id = if let Some(attr) = entry.attr(gimli::DW_AT_type)? {
+            if let AttributeValue::UnitRef(offset) = attr.value() {
+                self.build_type_registry_entry(offset)?
+            } else {
+                self.get_or_create_void_type()?
+            }
+        } else {
+            self.get_or_create_void_type()?
+        };
+
+        Ok(BaseTypeKind::Typedef {
+            name,
+            aliased_type_id,
+        })
+    }
+
+    fn get_or_create_void_type(&mut self) -> Result<TypeId> {
+        let void_types = self.type_registry.get_by_name("void");
+        if let Some(void_type) = void_types.first() {
+            return Ok(void_type.id);
+        }
+
+        let void_type = Type {
+            id: 0,
+            kind: BaseTypeKind::Primitive {
+                name: "void".to_string(),
+                size: 0,
+                alignment: 1,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+
+        Ok(self.type_registry.register_type(void_type))
+    }
+
+    pub fn into_registry(self) -> TypeRegistry {
+        self.type_registry
+    }
+
+    #[allow(dead_code)]
+    pub fn get_registry(&self) -> &TypeRegistry {
+        &self.type_registry
     }
 }

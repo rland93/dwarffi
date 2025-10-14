@@ -44,48 +44,6 @@ impl FunctionSignature {
     }
 }
 
-/// information about a resolved type from DWARF
-#[derive(Debug, Clone)]
-pub struct TypeInfo {
-    pub name: String,
-    pub is_const: bool,
-    pub is_volatile: bool,
-}
-
-impl TypeInfo {
-    pub fn new(name: String) -> Self {
-        Self {
-            name,
-            is_const: false,
-            is_volatile: false,
-        }
-    }
-
-    pub fn with_const(mut self) -> Self {
-        self.is_const = true;
-        self
-    }
-
-    pub fn with_volatile(mut self) -> Self {
-        self.is_volatile = true;
-        self
-    }
-
-    pub fn to_string(&self) -> String {
-        let mut result = String::new();
-
-        if self.is_const {
-            result.push_str("const ");
-        }
-        if self.is_volatile {
-            result.push_str("volatile ");
-        }
-
-        result.push_str(&self.name);
-        result
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,31 +164,5 @@ mod tests {
         };
 
         assert_eq!(sig.to_string(), "Point create_point(int x, int y)");
-    }
-
-    #[test]
-    fn test_type_info_plain() {
-        let ti = TypeInfo::new("int".to_string());
-        assert_eq!(ti.to_string(), "int");
-    }
-
-    #[test]
-    fn test_type_info_const() {
-        let ti = TypeInfo::new("char*".to_string()).with_const();
-        assert_eq!(ti.to_string(), "const char*");
-    }
-
-    #[test]
-    fn test_type_info_volatile() {
-        let ti = TypeInfo::new("int".to_string()).with_volatile();
-        assert_eq!(ti.to_string(), "volatile int");
-    }
-
-    #[test]
-    fn test_type_info_const_volatile() {
-        let ti = TypeInfo::new("int".to_string())
-            .with_const()
-            .with_volatile();
-        assert_eq!(ti.to_string(), "const volatile int");
     }
 }
