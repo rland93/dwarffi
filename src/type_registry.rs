@@ -160,7 +160,11 @@ impl TypeRegistry {
     pub fn merge(&mut self, other: TypeRegistry) -> HashMap<TypeId, TypeId> {
         let mut id_map = HashMap::new();
 
-        for (old_id, mut type_) in other.types {
+        // sort other before merging
+        let mut other_types: Vec<_> = other.types.into_iter().collect();
+        other_types.sort_by_key(|(_, t)| t.id);
+
+        for (old_id, mut type_) in other_types {
             // Remap referenced type IDs
             type_.remap_type_ids(&id_map);
 
