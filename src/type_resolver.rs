@@ -218,7 +218,7 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
             self.extract_type_metadata(entry, offset)?;
 
         let extracted_type = Type {
-            id: 0,
+            id: TypeId(0),
             kind,
             pointer_depth,
             is_const,
@@ -310,6 +310,26 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
                     return Ok((kind, pointer_depth, is_const, is_volatile));
                 }
 
+                gimli::DW_TAG_structure_type => {
+                    let kind = self.extract_struct_type(entry, current_offset)?;
+                    return Ok((kind, pointer_depth, is_const, is_volatile));
+                }
+
+                gimli::DW_TAG_union_type => {
+                    let kind = self.extract_union_type(entry, current_offset)?;
+                    return Ok((kind, pointer_depth, is_const, is_volatile));
+                }
+
+                gimli::DW_TAG_enumeration_type => {
+                    let kind = self.extract_enum_type(entry, current_offset)?;
+                    return Ok((kind, pointer_depth, is_const, is_volatile));
+                }
+
+                gimli::DW_TAG_array_type => {
+                    let kind = self.extract_array_type(entry, current_offset)?;
+                    return Ok((kind, pointer_depth, is_const, is_volatile));
+                }
+
                 _ => {
                     // Placeholder for now
                     let kind = BaseTypeKind::Primitive {
@@ -366,7 +386,7 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
         }
 
         let void_type = Type {
-            id: 0,
+            id: TypeId(0),
             kind: BaseTypeKind::Primitive {
                 name: "void".to_string(),
                 size: 0,
@@ -379,6 +399,319 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
         };
 
         Ok(self.type_registry.register_type(void_type))
+    }
+
+    fn extract_struct_type(
+        &mut self,
+        entry: &DebuggingInformationEntry<R>,
+        offset: UnitOffset<R::Offset>,
+    ) -> Result<BaseTypeKind> {
+        let name = self.get_name(entry).unwrap_or_else(|_| "<anonymous>".to_string());
+
+        let size = entry
+            .attr(gimli::DW_AT_byte_size)?
+            .and_then(|attr| attr.udata_value())
+            .unwrap_or(0) as usize;
+
+        // Check if opaque (declaration only, no byte_size)
+        let is_opaque = size == 0
+            && entry
+                .attr(gimli::DW_AT_declaration)?
+                .is_some();
+
+        // Extract fields (children of struct entry)
+        let fields = self.extract_struct_fields(offset)?;
+
+        let alignment = fields.iter().map(|f| f.size).max().unwrap_or(1);
+
+        Ok(BaseTypeKind::Struct {
+            name,
+            fields,
+            size,
+            alignment,
+            is_opaque,
+        })
+    }
+
+    fn extract_struct_fields(
+        &mut self,
+        struct_offset: UnitOffset<R::Offset>,
+    ) -> Result<Vec<crate::type_registry::StructField>> {
+        let mut fields = Vec::new();
+        let mut tree = self.unit.entries_tree(Some(struct_offset))?;
+        let struct_node = tree.root()?;
+
+        let mut children = struct_node.children();
+        while let Some(child) = children.next()? {
+            let entry = child.entry();
+
+            if entry.tag() != gimli::DW_TAG_member {
+                continue;
+            }
+
+            let name = self.get_name(entry).unwrap_or_default();
+
+            let type_id = if let Some(attr) = entry.attr(gimli::DW_AT_type)? {
+                if let AttributeValue::UnitRef(offset) = attr.value() {
+                    self.build_type_registry_entry(offset)?
+                } else {
+                    continue;
+                }
+            } else {
+                continue;
+            };
+
+            let offset = entry
+                .attr(gimli::DW_AT_data_member_location)?
+                .and_then(|attr| attr.udata_value())
+                .unwrap_or(0) as usize;
+
+            // Get size from the field's type
+            let field_type = self.type_registry.get_type(type_id);
+            let size = if let Some(ft) = field_type {
+                match &ft.kind {
+                    BaseTypeKind::Primitive { size, .. } => *size,
+                    BaseTypeKind::Struct { size, .. } => *size,
+                    BaseTypeKind::Array { size, .. } => *size,
+                    _ => 0,
+                }
+            } else {
+                0
+            };
+
+            fields.push(crate::type_registry::StructField {
+                name,
+                type_id,
+                offset,
+                size,
+            });
+        }
+
+        Ok(fields)
+    }
+
+    fn extract_union_type(
+        &mut self,
+        entry: &DebuggingInformationEntry<R>,
+        offset: UnitOffset<R::Offset>,
+    ) -> Result<BaseTypeKind> {
+        let name = self.get_name(entry).unwrap_or_else(|_| "<anonymous>".to_string());
+
+        let size = entry
+            .attr(gimli::DW_AT_byte_size)?
+            .and_then(|attr| attr.udata_value())
+            .unwrap_or(0) as usize;
+
+        let variants = self.extract_union_fields(offset)?;
+
+        let alignment = variants
+            .iter()
+            .filter_map(|v| {
+                self.type_registry.get_type(v.type_id).and_then(|t| {
+                    match &t.kind {
+                        BaseTypeKind::Primitive { alignment, .. } => Some(*alignment),
+                        BaseTypeKind::Struct { alignment, .. } => Some(*alignment),
+                        _ => None,
+                    }
+                })
+            })
+            .max()
+            .unwrap_or(1);
+
+        Ok(BaseTypeKind::Union {
+            name,
+            variants,
+            size,
+            alignment,
+        })
+    }
+
+    fn extract_union_fields(
+        &mut self,
+        union_offset: UnitOffset<R::Offset>,
+    ) -> Result<Vec<crate::type_registry::UnionField>> {
+        let mut variants = Vec::new();
+        let mut tree = self.unit.entries_tree(Some(union_offset))?;
+        let union_node = tree.root()?;
+
+        let mut children = union_node.children();
+        while let Some(child) = children.next()? {
+            let entry = child.entry();
+
+            if entry.tag() != gimli::DW_TAG_member {
+                continue;
+            }
+
+            let name = self.get_name(entry).unwrap_or_default();
+
+            let type_id = if let Some(attr) = entry.attr(gimli::DW_AT_type)? {
+                if let AttributeValue::UnitRef(offset) = attr.value() {
+                    self.build_type_registry_entry(offset)?
+                } else {
+                    continue;
+                }
+            } else {
+                continue;
+            };
+
+            variants.push(crate::type_registry::UnionField { name, type_id });
+        }
+
+        Ok(variants)
+    }
+
+    fn extract_enum_type(
+        &mut self,
+        entry: &DebuggingInformationEntry<R>,
+        offset: UnitOffset<R::Offset>,
+    ) -> Result<BaseTypeKind> {
+        let name = self.get_name(entry).unwrap_or_else(|_| "<anonymous>".to_string());
+
+        let size = entry
+            .attr(gimli::DW_AT_byte_size)?
+            .and_then(|attr| attr.udata_value())
+            .unwrap_or(4) as usize; // Default to int size
+
+        // Extract underlying type (DWARF DW_AT_type on enum)
+        let backing_id = if let Some(attr) = entry.attr(gimli::DW_AT_type)? {
+            if let AttributeValue::UnitRef(type_offset) = attr.value() {
+                self.build_type_registry_entry(type_offset)?
+            } else {
+                self.get_or_create_int_type()?
+            }
+        } else {
+            self.get_or_create_int_type()?
+        };
+
+        let variants = self.extract_enum_variants(offset)?;
+
+        Ok(BaseTypeKind::Enum {
+            name,
+            backing_id,
+            variants,
+            size,
+        })
+    }
+
+    fn extract_enum_variants(
+        &mut self,
+        enum_offset: UnitOffset<R::Offset>,
+    ) -> Result<Vec<crate::type_registry::EnumVariant>> {
+        let mut variants = Vec::new();
+        let mut tree = self.unit.entries_tree(Some(enum_offset))?;
+        let enum_node = tree.root()?;
+
+        let mut children = enum_node.children();
+        while let Some(child) = children.next()? {
+            let entry = child.entry();
+
+            if entry.tag() != gimli::DW_TAG_enumerator {
+                continue;
+            }
+
+            let name = self.get_name(entry).unwrap_or_default();
+
+            let value = entry
+                .attr(gimli::DW_AT_const_value)?
+                .and_then(|attr| attr.sdata_value())
+                .unwrap_or(0);
+
+            variants.push(crate::type_registry::EnumVariant { name, value });
+        }
+
+        Ok(variants)
+    }
+
+    fn extract_array_type(
+        &mut self,
+        entry: &DebuggingInformationEntry<R>,
+        offset: UnitOffset<R::Offset>,
+    ) -> Result<BaseTypeKind> {
+        // Get element type
+        let element_type_id = if let Some(attr) = entry.attr(gimli::DW_AT_type)? {
+            if let AttributeValue::UnitRef(type_offset) = attr.value() {
+                self.build_type_registry_entry(type_offset)?
+            } else {
+                return Err(anyhow!("array missing element type"));
+            }
+        } else {
+            return Err(anyhow!("array missing element type"));
+        };
+
+        // Get array dimensions (subrange children)
+        let count = self.extract_array_count(offset)?;
+
+        // Calculate size
+        let element_type = self
+            .type_registry
+            .get_type(element_type_id)
+            .ok_or_else(|| anyhow!("element type not found"))?;
+        let element_size = match &element_type.kind {
+            BaseTypeKind::Primitive { size, .. } => *size,
+            BaseTypeKind::Struct { size, .. } => *size,
+            BaseTypeKind::Array { size, .. } => *size,
+            _ => 0,
+        };
+
+        let total_size = element_size * count;
+
+        Ok(BaseTypeKind::Array {
+            element_type_id,
+            count,
+            size: total_size,
+        })
+    }
+
+    fn extract_array_count(&mut self, array_offset: UnitOffset<R::Offset>) -> Result<usize> {
+        let mut tree = self.unit.entries_tree(Some(array_offset))?;
+        let array_node = tree.root()?;
+
+        let mut children = array_node.children();
+        while let Some(child) = children.next()? {
+            let entry = child.entry();
+
+            if entry.tag() == gimli::DW_TAG_subrange_type {
+                // DW_AT_upper_bound or DW_AT_count
+                if let Some(attr) = entry.attr(gimli::DW_AT_count)? {
+                    if let Some(count) = attr.udata_value() {
+                        return Ok(count as usize);
+                    }
+                }
+
+                if let Some(attr) = entry.attr(gimli::DW_AT_upper_bound)? {
+                    if let Some(upper) = attr.udata_value() {
+                        // Count = upper_bound + 1 (0-indexed)
+                        return Ok((upper + 1) as usize);
+                    }
+                }
+            }
+        }
+
+        // Unknown/unbounded array
+        Ok(0)
+    }
+
+    fn get_or_create_int_type(&mut self) -> Result<TypeId> {
+        let int_types = self.type_registry.get_by_name("int");
+        if let Some(int_type) = int_types.first() {
+            return Ok(int_type.id);
+        }
+
+        // Create a default int type if not found
+        let int_type = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Primitive {
+                name: "int".to_string(),
+                size: 4,
+                alignment: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+
+        Ok(self.type_registry.register_type(int_type))
     }
 
     pub fn into_registry(self) -> TypeRegistry {

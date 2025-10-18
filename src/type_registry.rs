@@ -1,7 +1,16 @@
+use serde::Serialize;
 /// type registry for storing and managing C type information extracted from DWARF
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
-pub type TypeId = usize;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+pub struct TypeId(pub u64);
+
+impl Hash for TypeId {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Type {
@@ -27,7 +36,7 @@ pub enum BaseTypeKind {
         fields: Vec<StructField>,
         size: usize,
         alignment: usize,
-        is_opaque: bool, // True if forward declaration only
+        is_opaque: bool, // true if forward declaration only
     },
 
     Union {
@@ -68,8 +77,8 @@ pub enum BaseTypeKind {
 pub struct StructField {
     pub name: String,
     pub type_id: TypeId,
-    pub offset: usize, // Offset in bytes from struct start
-    pub size: usize,   // Size in bytes
+    pub offset: usize, // offset in bytes from struct start
+    pub size: usize,   // size in bytes
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -84,13 +93,240 @@ pub struct EnumVariant {
     pub value: i64,
 }
 
+#[derive(Serialize)]
+enum CanonicalTypeKind {
+    Primitive(CanonicalPrimitive),
+    Struct(CanonicalStruct),
+    Union(CanonicalUnion),
+    Enum(CanonicalEnum),
+    Array(CanonicalArray),
+    Typedef(CanonicalTypedef),
+    Function(CanonicalFunction),
+}
+
+#[derive(Serialize)]
+struct CanonicalPrimitive {
+    name: String,
+    size: usize,
+    alignment: usize,
+}
+
+#[derive(Serialize)]
+struct CanonicalStruct {
+    name: String,
+    fields: Vec<CanonicalField>,
+    size: usize,
+    alignment: usize,
+    is_opaque: bool,
+}
+
+#[derive(Serialize)]
+struct CanonicalField {
+    name: String,
+    type_id: TypeId,
+    offset: usize,
+    size: usize,
+}
+
+#[derive(Serialize)]
+struct CanonicalUnion {
+    name: String,
+    variants: Vec<CanonicalUnionVariant>,
+    size: usize,
+    alignment: usize,
+}
+
+#[derive(Serialize, Ord, PartialOrd, Eq, PartialEq)]
+struct CanonicalUnionVariant {
+    name: String,
+    type_id: TypeId,
+}
+
+#[derive(Serialize)]
+struct CanonicalEnum {
+    name: String,
+    backing_id: TypeId,
+    variants: Vec<CanonicalEnumVariant>,
+    size: usize,
+}
+
+#[derive(Serialize, Ord, PartialOrd, Eq, PartialEq)]
+struct CanonicalEnumVariant {
+    name: String,
+    value: i64,
+}
+
+#[derive(Serialize)]
+struct CanonicalArray {
+    element_type_id: TypeId,
+    count: usize,
+    size: usize,
+}
+
+#[derive(Serialize)]
+struct CanonicalTypedef {
+    name: String,
+    aliased_type_id: TypeId,
+}
+
+#[derive(Serialize)]
+struct CanonicalFunction {
+    return_type_id: Option<TypeId>,
+    parameter_type_ids: Vec<TypeId>, // order matters (calling convention)
+    is_variadic: bool,
+}
+
+impl BaseTypeKind {
+    /// convert to canonical form for hashing
+    /// sorts enum/union variants by name
+    fn to_canonical(&self) -> CanonicalTypeKind {
+        match self {
+            BaseTypeKind::Primitive {
+                name,
+                size,
+                alignment,
+            } => CanonicalTypeKind::Primitive(CanonicalPrimitive {
+                name: name.clone(),
+                size: *size,
+                alignment: *alignment,
+            }),
+
+            BaseTypeKind::Struct {
+                name,
+                fields,
+                size,
+                alignment,
+                is_opaque,
+            } => {
+                // keep field order (memory layout is order-dependent)
+                let canonical_fields = fields
+                    .iter()
+                    .map(|f| CanonicalField {
+                        name: f.name.clone(),
+                        type_id: f.type_id,
+                        offset: f.offset,
+                        size: f.size,
+                    })
+                    .collect();
+
+                CanonicalTypeKind::Struct(CanonicalStruct {
+                    name: name.clone(),
+                    fields: canonical_fields,
+                    size: *size,
+                    alignment: *alignment,
+                    is_opaque: *is_opaque,
+                })
+            }
+
+            BaseTypeKind::Union {
+                name,
+                variants,
+                size,
+                alignment,
+            } => {
+                // sort variants by name for canonical ordering
+                let mut sorted_variants: Vec<_> = variants
+                    .iter()
+                    .map(|v| CanonicalUnionVariant {
+                        name: v.name.clone(),
+                        type_id: v.type_id,
+                    })
+                    .collect();
+                sorted_variants.sort_by(|a, b| a.name.cmp(&b.name));
+
+                CanonicalTypeKind::Union(CanonicalUnion {
+                    name: name.clone(),
+                    variants: sorted_variants,
+                    size: *size,
+                    alignment: *alignment,
+                })
+            }
+
+            BaseTypeKind::Enum {
+                name,
+                backing_id,
+                variants,
+                size,
+            } => {
+                // sort variants by name for canonical ordering
+                let mut sorted_variants: Vec<_> = variants
+                    .iter()
+                    .map(|v| CanonicalEnumVariant {
+                        name: v.name.clone(),
+                        value: v.value,
+                    })
+                    .collect();
+                sorted_variants.sort_by(|a, b| a.name.cmp(&b.name));
+
+                CanonicalTypeKind::Enum(CanonicalEnum {
+                    name: name.clone(),
+                    backing_id: *backing_id,
+                    variants: sorted_variants,
+                    size: *size,
+                })
+            }
+
+            BaseTypeKind::Array {
+                element_type_id,
+                count,
+                size,
+            } => CanonicalTypeKind::Array(CanonicalArray {
+                element_type_id: *element_type_id,
+                count: *count,
+                size: *size,
+            }),
+
+            BaseTypeKind::Typedef {
+                name,
+                aliased_type_id,
+            } => CanonicalTypeKind::Typedef(CanonicalTypedef {
+                name: name.clone(),
+                aliased_type_id: *aliased_type_id,
+            }),
+
+            BaseTypeKind::Function {
+                return_type_id,
+                parameter_type_ids,
+                is_variadic,
+            } => {
+                // keep parameter order (calling convention is order-dependent)
+                CanonicalTypeKind::Function(CanonicalFunction {
+                    return_type_id: *return_type_id,
+                    parameter_type_ids: parameter_type_ids.clone(),
+                    is_variadic: *is_variadic,
+                })
+            }
+        }
+    }
+}
+
+fn compute_type_id(
+    kind: &BaseTypeKind,
+    pointer_depth: usize,
+    is_const: bool,
+    is_volatile: bool,
+) -> TypeId {
+    use bincode::Options;
+    use std::collections::hash_map::DefaultHasher;
+
+    let canonical = kind.to_canonical();
+
+    let bytes = bincode::DefaultOptions::new()
+        .with_fixint_encoding() // Ensure consistent integer encoding
+        .serialize(&(canonical, pointer_depth, is_const, is_volatile))
+        .expect("serialization should not fail");
+
+    let mut hasher = DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    TypeId(hasher.finish())
+}
+
 /// central registry
 #[derive(Debug, Clone)]
 pub struct TypeRegistry {
     types: HashMap<TypeId, Type>,
     dwarf_to_id: HashMap<u64, TypeId>,
     name_to_ids: HashMap<String, Vec<TypeId>>,
-    next_id: TypeId,
 }
 
 impl TypeRegistry {
@@ -99,14 +335,24 @@ impl TypeRegistry {
             types: HashMap::new(),
             dwarf_to_id: HashMap::new(),
             name_to_ids: HashMap::new(),
-            next_id: 0,
         }
     }
 
-    /// register a new type with an incremented ID
+    /// register a new type with a content-addressed ID
+    /// if an identical type already exists, returns its ID
     pub fn register_type(&mut self, mut type_: Type) -> TypeId {
-        let id = self.next_id;
-        self.next_id += 1;
+        // compute content-addressed ID from type structure
+        let id = compute_type_id(
+            &type_.kind,
+            type_.pointer_depth,
+            type_.is_const,
+            type_.is_volatile,
+        );
+
+        // check if already exists (automatic deduplication!)
+        if self.types.contains_key(&id) {
+            return id; // Same structure = same ID, already registered
+        }
 
         type_.id = id;
 
@@ -157,22 +403,27 @@ impl TypeRegistry {
         self.types.is_empty()
     }
 
-    pub fn merge(&mut self, other: TypeRegistry) -> HashMap<TypeId, TypeId> {
-        let mut id_map = HashMap::new();
-
-        // sort other before merging
-        let mut other_types: Vec<_> = other.types.into_iter().collect();
-        other_types.sort_by_key(|(_, t)| t.id);
-
-        for (old_id, mut type_) in other_types {
-            // Remap referenced type IDs
-            type_.remap_type_ids(&id_map);
-
-            let new_id = self.register_type(type_);
-            id_map.insert(old_id, new_id);
+    /// merge another registry into this one.
+    pub fn merge(&mut self, other: TypeRegistry) {
+        // union the types (content-addressed, so same ID = same type)
+        for (id, type_) in other.types {
+            self.types.entry(id).or_insert(type_);
         }
 
-        id_map
+        // merge name index (deduplicate TypeIds)
+        for (name, ids) in other.name_to_ids {
+            let existing = self.name_to_ids.entry(name).or_insert_with(Vec::new);
+            for id in ids {
+                if !existing.contains(&id) {
+                    existing.push(id);
+                }
+            }
+        }
+
+        // merge DWARF offset index
+        for (offset, id) in other.dwarf_to_id {
+            self.dwarf_to_id.entry(offset).or_insert(id);
+        }
     }
 }
 
@@ -194,66 +445,6 @@ impl Type {
             BaseTypeKind::Function { .. } => "<function>".to_string(),
         }
     }
-
-    fn remap_type_ids(&mut self, id_map: &HashMap<TypeId, TypeId>) {
-        match &mut self.kind {
-            BaseTypeKind::Struct { fields, .. } => {
-                for field in fields {
-                    if let Some(&new_id) = id_map.get(&field.type_id) {
-                        field.type_id = new_id;
-                    }
-                }
-            }
-            BaseTypeKind::Union { variants, .. } => {
-                for variant in variants {
-                    if let Some(&new_id) = id_map.get(&variant.type_id) {
-                        variant.type_id = new_id;
-                    }
-                }
-            }
-            BaseTypeKind::Enum {
-                backing_id: underlying_type_id,
-                ..
-            } => {
-                if let Some(&new_id) = id_map.get(underlying_type_id) {
-                    *underlying_type_id = new_id;
-                }
-            }
-            BaseTypeKind::Array {
-                element_type_id, ..
-            } => {
-                if let Some(&new_id) = id_map.get(element_type_id) {
-                    *element_type_id = new_id;
-                }
-            }
-            BaseTypeKind::Typedef {
-                aliased_type_id, ..
-            } => {
-                if let Some(&new_id) = id_map.get(aliased_type_id) {
-                    *aliased_type_id = new_id;
-                }
-            }
-            BaseTypeKind::Function {
-                return_type_id,
-                parameter_type_ids,
-                ..
-            } => {
-                if let Some(ret_id) = return_type_id {
-                    if let Some(&new_id) = id_map.get(ret_id) {
-                        *ret_id = new_id;
-                    }
-                }
-                for param_id in parameter_type_ids {
-                    if let Some(&new_id) = id_map.get(param_id) {
-                        *param_id = new_id;
-                    }
-                }
-            }
-            BaseTypeKind::Primitive { .. } => {
-                // no type references in primitives
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -265,7 +456,7 @@ mod tests {
         let mut registry = TypeRegistry::new();
 
         let type_ = Type {
-            id: 0,
+            id: TypeId(0), // Will be recomputed
             kind: BaseTypeKind::Primitive {
                 name: "int".to_string(),
                 size: 4,
@@ -278,7 +469,7 @@ mod tests {
         };
 
         let id = registry.register_type(type_);
-        assert_eq!(id, 0);
+        // Don't assert specific ID value (content-addressed)
         assert_eq!(registry.len(), 1);
         assert!(!registry.is_empty());
 
@@ -308,7 +499,7 @@ mod tests {
         let mut registry = TypeRegistry::new();
 
         let int_type = Type {
-            id: 0,
+            id: TypeId(0), // will be recomputed
             kind: BaseTypeKind::Primitive {
                 name: "int".to_string(),
                 size: 4,
@@ -321,7 +512,7 @@ mod tests {
         };
 
         let float_type = Type {
-            id: 0,
+            id: TypeId(0), // will be recomputed
             kind: BaseTypeKind::Primitive {
                 name: "float".to_string(),
                 size: 4,
@@ -336,8 +527,8 @@ mod tests {
         let int_id = registry.register_type(int_type);
         let float_id = registry.register_type(float_type);
 
-        assert_eq!(int_id, 0);
-        assert_eq!(float_id, 1);
+        // don't assert specific IDs, just that they're different
+        assert_ne!(int_id, float_id);
         assert_eq!(registry.len(), 2);
     }
 
@@ -346,7 +537,7 @@ mod tests {
         let mut registry = TypeRegistry::new();
 
         let int_type = Type {
-            id: 0,
+            id: TypeId(0),
             kind: BaseTypeKind::Primitive {
                 name: "int".to_string(),
                 size: 4,
@@ -374,7 +565,7 @@ mod tests {
 
         // int**
         let int_double_ptr = Type {
-            id: 0,
+            id: TypeId(0),
             kind: BaseTypeKind::Primitive {
                 name: "int".to_string(),
                 size: 4,
@@ -396,7 +587,7 @@ mod tests {
         let mut registry = TypeRegistry::new();
 
         let const_int = Type {
-            id: 0,
+            id: TypeId(0),
             kind: BaseTypeKind::Primitive {
                 name: "int".to_string(),
                 size: 4,
@@ -419,7 +610,7 @@ mod tests {
         let mut registry = TypeRegistry::new();
 
         let int_type = Type {
-            id: 0,
+            id: TypeId(0),
             kind: BaseTypeKind::Primitive {
                 name: "int".to_string(),
                 size: 4,
@@ -433,7 +624,7 @@ mod tests {
         let int_id = registry.register_type(int_type);
 
         let point_type = Type {
-            id: 0,
+            id: TypeId(0),
             kind: BaseTypeKind::Struct {
                 name: "Point".to_string(),
                 fields: vec![
@@ -487,7 +678,7 @@ mod tests {
         let mut registry = TypeRegistry::new();
 
         let int_type = Type {
-            id: 0,
+            id: TypeId(0),
             kind: BaseTypeKind::Primitive {
                 name: "int".to_string(),
                 size: 4,
@@ -501,7 +692,7 @@ mod tests {
         let int_id = registry.register_type(int_type);
 
         let status_enum = Type {
-            id: 0,
+            id: TypeId(0),
             kind: BaseTypeKind::Enum {
                 name: "Status".to_string(),
                 backing_id: int_id,
@@ -548,7 +739,7 @@ mod tests {
         let mut registry = TypeRegistry::new();
 
         let char_type = Type {
-            id: 0,
+            id: TypeId(0),
             kind: BaseTypeKind::Primitive {
                 name: "char".to_string(),
                 size: 1,
@@ -562,7 +753,7 @@ mod tests {
         let char_id = registry.register_type(char_type);
 
         let char_array = Type {
-            id: 0,
+            id: TypeId(0),
             kind: BaseTypeKind::Array {
                 element_type_id: char_id,
                 count: 64,
@@ -596,7 +787,7 @@ mod tests {
         let mut registry = TypeRegistry::new();
 
         let int_type = Type {
-            id: 0,
+            id: TypeId(0),
             kind: BaseTypeKind::Primitive {
                 name: "int".to_string(),
                 size: 4,
@@ -610,7 +801,7 @@ mod tests {
         let int_id = registry.register_type(int_type);
 
         let size_t_typedef = Type {
-            id: 0,
+            id: TypeId(0),
             kind: BaseTypeKind::Typedef {
                 name: "size_t".to_string(),
                 aliased_type_id: int_id,
@@ -642,7 +833,7 @@ mod tests {
         let mut registry2 = TypeRegistry::new();
 
         let int_type = Type {
-            id: 0,
+            id: TypeId(0),
             kind: BaseTypeKind::Primitive {
                 name: "int".to_string(),
                 size: 4,
@@ -656,7 +847,7 @@ mod tests {
         registry1.register_type(int_type);
 
         let float_type = Type {
-            id: 0,
+            id: TypeId(0),
             kind: BaseTypeKind::Primitive {
                 name: "float".to_string(),
                 size: 4,
@@ -677,15 +868,12 @@ mod tests {
     }
 
     #[test]
-    /// TODO FIXME!! this one is flaky. i think has to do with how we use the
-    /// integer and pass it in and out when we register, I'm pretty sure. we
-    /// need an atomic + thread safe ID instead of a simple usize.
     fn test_merge_with_references() {
         let mut registry1 = TypeRegistry::new();
         let mut registry2 = TypeRegistry::new();
 
         let int_type = Type {
-            id: 0,
+            id: TypeId(0),
             kind: BaseTypeKind::Primitive {
                 name: "int".to_string(),
                 size: 4,
@@ -699,7 +887,7 @@ mod tests {
         let int_id = registry2.register_type(int_type);
 
         let point_type = Type {
-            id: 0,
+            id: TypeId(0),
             kind: BaseTypeKind::Struct {
                 name: "Point".to_string(),
                 fields: vec![StructField {
@@ -719,18 +907,20 @@ mod tests {
         };
         registry2.register_type(point_type);
 
-        let id_map = registry1.merge(registry2);
+        // Merge registry2 into registry1
+        registry1.merge(registry2);
 
         assert_eq!(registry1.len(), 2);
 
         let point_types = registry1.get_by_name("Point");
         assert_eq!(point_types.len(), 1);
 
+        // With content-addressing, the field's type_id should match int_id
+        // because same type = same ID everywhere
         match &point_types[0].kind {
             BaseTypeKind::Struct { fields, .. } => {
                 let field_type_id = fields[0].type_id;
-                let new_int_id = id_map.get(&int_id).unwrap();
-                assert_eq!(field_type_id, *new_int_id);
+                assert_eq!(field_type_id, int_id); // Same ID!
 
                 let field_type = registry1.get_type(field_type_id).unwrap();
                 match &field_type.kind {
@@ -749,7 +939,7 @@ mod tests {
         let mut registry = TypeRegistry::new();
 
         registry.register_type(Type {
-            id: 0,
+            id: TypeId(0),
             kind: BaseTypeKind::Primitive {
                 name: "int".to_string(),
                 size: 4,
@@ -762,7 +952,7 @@ mod tests {
         });
 
         registry.register_type(Type {
-            id: 0,
+            id: TypeId(0),
             kind: BaseTypeKind::Primitive {
                 name: "float".to_string(),
                 size: 4,
@@ -776,5 +966,750 @@ mod tests {
 
         let count = registry.all_types().count();
         assert_eq!(count, 2);
+    }
+
+    // ========================================================================
+    // Phase 1 Tests: Content-Addressing Deduplication
+    // ========================================================================
+
+    #[test]
+    fn test_deduplication_same_primitive_twice() {
+        let mut registry = TypeRegistry::new();
+
+        let int_type1 = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Primitive {
+                name: "int".to_string(),
+                size: 4,
+                alignment: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: Some(0x100),
+        };
+
+        let int_type2 = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Primitive {
+                name: "int".to_string(),
+                size: 4,
+                alignment: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: Some(0x200), // Different DWARF offset!
+        };
+
+        let id1 = registry.register_type(int_type1);
+        let id2 = registry.register_type(int_type2);
+
+        // Same structure = same TypeId
+        assert_eq!(id1, id2);
+        // Only one entry in registry
+        assert_eq!(registry.len(), 1);
+    }
+
+    #[test]
+    fn test_deduplication_same_struct_twice() {
+        let mut registry = TypeRegistry::new();
+
+        let int_type = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Primitive {
+                name: "int".to_string(),
+                size: 4,
+                alignment: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+        let int_id = registry.register_type(int_type);
+
+        let point1 = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Struct {
+                name: "Point".to_string(),
+                fields: vec![
+                    StructField {
+                        name: "x".to_string(),
+                        type_id: int_id,
+                        offset: 0,
+                        size: 4,
+                    },
+                    StructField {
+                        name: "y".to_string(),
+                        type_id: int_id,
+                        offset: 4,
+                        size: 4,
+                    },
+                ],
+                size: 8,
+                alignment: 4,
+                is_opaque: false,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: Some(0x1000),
+        };
+
+        let point2 = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Struct {
+                name: "Point".to_string(),
+                fields: vec![
+                    StructField {
+                        name: "x".to_string(),
+                        type_id: int_id,
+                        offset: 0,
+                        size: 4,
+                    },
+                    StructField {
+                        name: "y".to_string(),
+                        type_id: int_id,
+                        offset: 4,
+                        size: 4,
+                    },
+                ],
+                size: 8,
+                alignment: 4,
+                is_opaque: false,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: Some(0x2000), // Different offset
+        };
+
+        let id1 = registry.register_type(point1);
+        let id2 = registry.register_type(point2);
+
+        // Same structure = same TypeId
+        assert_eq!(id1, id2);
+        // Two types total: int + Point
+        assert_eq!(registry.len(), 2);
+    }
+
+    #[test]
+    fn test_deduplication_same_enum_twice() {
+        let mut registry = TypeRegistry::new();
+
+        let int_type = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Primitive {
+                name: "int".to_string(),
+                size: 4,
+                alignment: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+        let int_id = registry.register_type(int_type);
+
+        let enum1 = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Enum {
+                name: "Status".to_string(),
+                backing_id: int_id,
+                variants: vec![
+                    EnumVariant {
+                        name: "OK".to_string(),
+                        value: 0,
+                    },
+                    EnumVariant {
+                        name: "ERROR".to_string(),
+                        value: 1,
+                    },
+                ],
+                size: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: Some(0x1000),
+        };
+
+        let enum2 = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Enum {
+                name: "Status".to_string(),
+                backing_id: int_id,
+                variants: vec![
+                    EnumVariant {
+                        name: "OK".to_string(),
+                        value: 0,
+                    },
+                    EnumVariant {
+                        name: "ERROR".to_string(),
+                        value: 1,
+                    },
+                ],
+                size: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: Some(0x2000),
+        };
+
+        let id1 = registry.register_type(enum1);
+        let id2 = registry.register_type(enum2);
+
+        assert_eq!(id1, id2);
+        // Two types: int + Status enum
+        assert_eq!(registry.len(), 2);
+    }
+
+    #[test]
+    fn test_no_deduplication_different_types() {
+        let mut registry = TypeRegistry::new();
+
+        let int_type = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Primitive {
+                name: "int".to_string(),
+                size: 4,
+                alignment: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+
+        let float_type = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Primitive {
+                name: "float".to_string(),
+                size: 4,
+                alignment: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+
+        let int_id = registry.register_type(int_type);
+        let float_id = registry.register_type(float_type);
+
+        // Different types = different IDs
+        assert_ne!(int_id, float_id);
+        assert_eq!(registry.len(), 2);
+    }
+
+    // ========================================================================
+    // Phase 1 Tests: Canonical Ordering
+    // ========================================================================
+
+    #[test]
+    fn test_enum_variant_order_independence() {
+        let mut registry = TypeRegistry::new();
+
+        let int_type = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Primitive {
+                name: "int".to_string(),
+                size: 4,
+                alignment: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+        let int_id = registry.register_type(int_type);
+
+        // Enum with variants in order: [OK, ERROR]
+        let enum1 = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Enum {
+                name: "Status".to_string(),
+                backing_id: int_id,
+                variants: vec![
+                    EnumVariant {
+                        name: "OK".to_string(),
+                        value: 0,
+                    },
+                    EnumVariant {
+                        name: "ERROR".to_string(),
+                        value: 1,
+                    },
+                ],
+                size: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+
+        // Enum with variants in DIFFERENT order: [ERROR, OK]
+        let enum2 = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Enum {
+                name: "Status".to_string(),
+                backing_id: int_id,
+                variants: vec![
+                    EnumVariant {
+                        name: "ERROR".to_string(),
+                        value: 1,
+                    },
+                    EnumVariant {
+                        name: "OK".to_string(),
+                        value: 0,
+                    },
+                ],
+                size: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+
+        let id1 = registry.register_type(enum1);
+        let id2 = registry.register_type(enum2);
+
+        // Variant order shouldn't matter - canonical form sorts by name
+        assert_eq!(id1, id2);
+        // Only one enum registered
+        assert_eq!(registry.len(), 2); // int + Status
+    }
+
+    #[test]
+    fn test_union_variant_order_independence() {
+        let mut registry = TypeRegistry::new();
+
+        let int_type = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Primitive {
+                name: "int".to_string(),
+                size: 4,
+                alignment: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+        let int_id = registry.register_type(int_type);
+
+        let float_type = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Primitive {
+                name: "float".to_string(),
+                size: 4,
+                alignment: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+        let float_id = registry.register_type(float_type);
+
+        // Union with variants in order: [as_int, as_float]
+        let union1 = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Union {
+                name: "DataUnion".to_string(),
+                variants: vec![
+                    UnionField {
+                        name: "as_int".to_string(),
+                        type_id: int_id,
+                    },
+                    UnionField {
+                        name: "as_float".to_string(),
+                        type_id: float_id,
+                    },
+                ],
+                size: 4,
+                alignment: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+
+        // Union with variants in DIFFERENT order: [as_float, as_int]
+        let union2 = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Union {
+                name: "DataUnion".to_string(),
+                variants: vec![
+                    UnionField {
+                        name: "as_float".to_string(),
+                        type_id: float_id,
+                    },
+                    UnionField {
+                        name: "as_int".to_string(),
+                        type_id: int_id,
+                    },
+                ],
+                size: 4,
+                alignment: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+
+        let id1 = registry.register_type(union1);
+        let id2 = registry.register_type(union2);
+
+        // Variant order shouldn't matter - canonical form sorts by name
+        assert_eq!(id1, id2);
+        // Three types: int, float, DataUnion
+        assert_eq!(registry.len(), 3);
+    }
+
+    #[test]
+    fn test_struct_field_order_dependence() {
+        let mut registry = TypeRegistry::new();
+
+        let int_type = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Primitive {
+                name: "int".to_string(),
+                size: 4,
+                alignment: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+        let int_id = registry.register_type(int_type);
+
+        // Struct with fields [x, y]
+        let struct1 = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Struct {
+                name: "Point".to_string(),
+                fields: vec![
+                    StructField {
+                        name: "x".to_string(),
+                        type_id: int_id,
+                        offset: 0,
+                        size: 4,
+                    },
+                    StructField {
+                        name: "y".to_string(),
+                        type_id: int_id,
+                        offset: 4,
+                        size: 4,
+                    },
+                ],
+                size: 8,
+                alignment: 4,
+                is_opaque: false,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+
+        // Struct with fields in DIFFERENT order: [y, x]
+        let struct2 = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Struct {
+                name: "Point".to_string(),
+                fields: vec![
+                    StructField {
+                        name: "y".to_string(),
+                        type_id: int_id,
+                        offset: 0, // Different offset!
+                        size: 4,
+                    },
+                    StructField {
+                        name: "x".to_string(),
+                        type_id: int_id,
+                        offset: 4,
+                        size: 4,
+                    },
+                ],
+                size: 8,
+                alignment: 4,
+                is_opaque: false,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+
+        let id1 = registry.register_type(struct1);
+        let id2 = registry.register_type(struct2);
+
+        // Field order DOES matter for structs (memory layout)
+        assert_ne!(id1, id2);
+        // Three types: int, Point(x,y), Point(y,x)
+        assert_eq!(registry.len(), 3);
+    }
+
+    #[test]
+    fn test_function_param_order_dependence() {
+        let mut registry = TypeRegistry::new();
+
+        let int_type = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Primitive {
+                name: "int".to_string(),
+                size: 4,
+                alignment: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+        let int_id = registry.register_type(int_type);
+
+        let float_type = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Primitive {
+                name: "float".to_string(),
+                size: 4,
+                alignment: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+        let float_id = registry.register_type(float_type);
+
+        // Function(int, float)
+        let func1 = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Function {
+                return_type_id: None,
+                parameter_type_ids: vec![int_id, float_id],
+                is_variadic: false,
+            },
+            pointer_depth: 1, // Function pointer
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+
+        // Function(float, int)
+        let func2 = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Function {
+                return_type_id: None,
+                parameter_type_ids: vec![float_id, int_id],
+                is_variadic: false,
+            },
+            pointer_depth: 1,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+
+        let id1 = registry.register_type(func1);
+        let id2 = registry.register_type(func2);
+
+        // Parameter order DOES matter (calling convention)
+        assert_ne!(id1, id2);
+        // Four types: int, float, func1, func2
+        assert_eq!(registry.len(), 4);
+    }
+
+    // ========================================================================
+    // Phase 1 Tests: Merge with Overlap
+    // ========================================================================
+
+    #[test]
+    fn test_merge_complete_overlap() {
+        let mut registry1 = TypeRegistry::new();
+        let mut registry2 = TypeRegistry::new();
+
+        let int_type = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Primitive {
+                name: "int".to_string(),
+                size: 4,
+                alignment: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: Some(0x100),
+        };
+
+        let float_type = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Primitive {
+                name: "float".to_string(),
+                size: 4,
+                alignment: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: Some(0x200),
+        };
+
+        // Both registries have the same types
+        registry1.register_type(int_type.clone());
+        registry1.register_type(float_type.clone());
+
+        registry2.register_type(int_type);
+        registry2.register_type(float_type);
+
+        assert_eq!(registry1.len(), 2);
+        assert_eq!(registry2.len(), 2);
+
+        registry1.merge(registry2);
+
+        // No duplication - still only 2 types
+        assert_eq!(registry1.len(), 2);
+        assert_eq!(registry1.get_by_name("int").len(), 1);
+        assert_eq!(registry1.get_by_name("float").len(), 1);
+    }
+
+    #[test]
+    fn test_merge_partial_overlap() {
+        let mut registry1 = TypeRegistry::new();
+        let mut registry2 = TypeRegistry::new();
+
+        let int_type = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Primitive {
+                name: "int".to_string(),
+                size: 4,
+                alignment: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+
+        let float_type = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Primitive {
+                name: "float".to_string(),
+                size: 4,
+                alignment: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+
+        let double_type = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Primitive {
+                name: "double".to_string(),
+                size: 8,
+                alignment: 8,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+
+        // registry1 has int, float
+        registry1.register_type(int_type.clone());
+        registry1.register_type(float_type.clone());
+
+        // registry2 has float, double (float is shared)
+        registry2.register_type(float_type);
+        registry2.register_type(double_type);
+
+        assert_eq!(registry1.len(), 2);
+        assert_eq!(registry2.len(), 2);
+
+        registry1.merge(registry2);
+
+        // Three unique types: int, float, double
+        assert_eq!(registry1.len(), 3);
+        assert_eq!(registry1.get_by_name("int").len(), 1);
+        assert_eq!(registry1.get_by_name("float").len(), 1);
+        assert_eq!(registry1.get_by_name("double").len(), 1);
+    }
+
+    #[test]
+    fn test_merge_preserves_references() {
+        let mut registry1 = TypeRegistry::new();
+        let mut registry2 = TypeRegistry::new();
+
+        // Register int in registry2
+        let int_type = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Primitive {
+                name: "int".to_string(),
+                size: 4,
+                alignment: 4,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+        let int_id_reg2 = registry2.register_type(int_type.clone());
+
+        // Register struct in registry2 that references int
+        let point_type = Type {
+            id: TypeId(0),
+            kind: BaseTypeKind::Struct {
+                name: "Point".to_string(),
+                fields: vec![StructField {
+                    name: "x".to_string(),
+                    type_id: int_id_reg2,
+                    offset: 0,
+                    size: 4,
+                }],
+                size: 4,
+                alignment: 4,
+                is_opaque: false,
+            },
+            pointer_depth: 0,
+            is_const: false,
+            is_volatile: false,
+            dwarf_offset: None,
+        };
+        registry2.register_type(point_type);
+
+        // Also register int in registry1 independently
+        let int_id_reg1 = registry1.register_type(int_type);
+
+        // Before merge
+        assert_eq!(registry2.len(), 2);
+
+        // Merge
+        registry1.merge(registry2);
+
+        // After merge: int + Point
+        assert_eq!(registry1.len(), 2);
+
+        // The TypeIds should match because content-addressing
+        assert_eq!(int_id_reg1, int_id_reg2);
+
+        // Verify Point still references correct int TypeId
+        let point_types = registry1.get_by_name("Point");
+        assert_eq!(point_types.len(), 1);
+
+        match &point_types[0].kind {
+            BaseTypeKind::Struct { fields, .. } => {
+                assert_eq!(fields[0].type_id, int_id_reg1);
+                assert_eq!(fields[0].type_id, int_id_reg2);
+            }
+            _ => panic!("Expected struct"),
+        }
     }
 }
