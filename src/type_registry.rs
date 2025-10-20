@@ -484,7 +484,32 @@ impl Type {
 
             BaseTypeKind::Typedef { name, .. } => name.clone(),
 
-            BaseTypeKind::Function { .. } => "void (*)(...)".to_string(), // Simplified
+            BaseTypeKind::Function {
+                return_type_id,
+                parameter_type_ids,
+                is_variadic,
+            } => {
+                let ret = return_type_id
+                    .and_then(|id| registry.get_type(id))
+                    .map(|t| t.to_c_string(registry))
+                    .unwrap_or_else(|| "void".to_string());
+
+                let params: Vec<String> = parameter_type_ids
+                    .iter()
+                    .filter_map(|id| registry.get_type(*id))
+                    .map(|t| t.to_c_string(registry))
+                    .collect();
+
+                let param_str = if params.is_empty() {
+                    "void".to_string()
+                } else if *is_variadic {
+                    format!("{}, ...", params.join(", "))
+                } else {
+                    params.join(", ")
+                };
+
+                format!("{} (*)({})", ret, param_str)
+            }
         };
 
         if self.is_const {

@@ -456,3 +456,163 @@ fn test_function_pointer_parameter_signature() {
             .unwrap_or(false)
     }));
 }
+
+#[test]
+/// test callback typedef resolution to function pointer
+fn test_callback_typedef_resolution() {
+    use ffitool::type_registry::BaseTypeKind;
+
+    let path = PathBuf::from("test_c/testlib.o");
+    let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
+    let result = analyzer
+        .extract_analysis(false)
+        .expect("fail to extract analysis");
+
+    // Find register_callback function: void register_callback(Callback cb, void* userdata);
+    let sig = result.signatures
+        .iter()
+        .find(|s| s.name == "register_callback")
+        .expect("register_callback not found");
+
+    assert_eq!(sig.parameters.len(), 2);
+
+    // Get the Callback parameter type (first parameter)
+    let callback_param_type = result.type_registry
+        .get_type(sig.parameters[0].type_id)
+        .expect("callback parameter type not found");
+
+    // Should be a Typedef
+    match &callback_param_type.kind {
+        BaseTypeKind::Typedef { name, aliased_type_id } => {
+            assert_eq!(name, "Callback");
+
+            // Follow typedef to the aliased type (should be pointer to function)
+            let aliased_type = result.type_registry
+                .get_type(*aliased_type_id)
+                .expect("aliased type not found");
+
+            // Should be a pointer (pointer_depth = 1)
+            assert_eq!(aliased_type.pointer_depth, 1, "Callback should be a function pointer");
+
+            // The base type should be a Function
+            match &aliased_type.kind {
+                BaseTypeKind::Function { return_type_id, parameter_type_ids, is_variadic } => {
+                    // Verify return type is void
+                    assert!(return_type_id.is_none(), "Callback should return void");
+
+                    // Verify parameters: (int code, void* userdata)
+                    assert_eq!(parameter_type_ids.len(), 2, "Callback should have 2 parameters");
+
+                    // First parameter should be int
+                    let param0_type = result.type_registry
+                        .get_type(parameter_type_ids[0])
+                        .expect("callback param 0 type not found");
+                    let param0_str = param0_type.to_c_string(&result.type_registry);
+                    assert!(param0_str.contains("int"), "First parameter should be int, got: {}", param0_str);
+
+                    // Second parameter should be void*
+                    let param1_type = result.type_registry
+                        .get_type(parameter_type_ids[1])
+                        .expect("callback param 1 type not found");
+                    assert_eq!(param1_type.pointer_depth, 1, "Second parameter should be a pointer");
+
+                    // Not variadic
+                    assert!(!is_variadic, "Callback should not be variadic");
+                }
+                _ => panic!("Callback should resolve to a Function type, got: {:?}", aliased_type.kind),
+            }
+        }
+        _ => panic!("Callback should be a Typedef, got: {:?}", callback_param_type.kind),
+    }
+}
+
+#[test]
+/// test comparator typedef resolution to function pointer
+fn test_comparator_typedef_resolution() {
+    use ffitool::type_registry::BaseTypeKind;
+
+    let path = PathBuf::from("test_c/testlib.o");
+    let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
+    let result = analyzer
+        .extract_analysis(false)
+        .expect("fail to extract analysis");
+
+    // Find sort_array function: void sort_array(int* arr, size_t count, Comparator cmp);
+    let sig = result.signatures
+        .iter()
+        .find(|s| s.name == "sort_array")
+        .expect("sort_array not found");
+
+    assert_eq!(sig.parameters.len(), 3);
+
+    // Get the Comparator parameter type (third parameter)
+    let comparator_param_type = result.type_registry
+        .get_type(sig.parameters[2].type_id)
+        .expect("comparator parameter type not found");
+
+    // Should be a Typedef
+    match &comparator_param_type.kind {
+        BaseTypeKind::Typedef { name, aliased_type_id } => {
+            assert_eq!(name, "Comparator");
+
+            // Follow typedef to the aliased type (should be pointer to function)
+            let aliased_type = result.type_registry
+                .get_type(*aliased_type_id)
+                .expect("aliased type not found");
+
+            // Should be a pointer (pointer_depth = 1)
+            assert_eq!(aliased_type.pointer_depth, 1, "Comparator should be a function pointer");
+
+            // The base type should be a Function
+            match &aliased_type.kind {
+                BaseTypeKind::Function { return_type_id, parameter_type_ids, is_variadic } => {
+                    // Verify return type is int
+                    let return_type = return_type_id
+                        .and_then(|id| result.type_registry.get_type(id))
+                        .expect("comparator return type not found");
+                    let return_str = return_type.to_c_string(&result.type_registry);
+                    assert!(return_str.contains("int"), "Comparator should return int, got: {}", return_str);
+
+                    // Verify parameters: (const void* a, const void* b)
+                    assert_eq!(parameter_type_ids.len(), 2, "Comparator should have 2 parameters");
+
+                    // Both parameters should be const void*
+                    for (i, param_id) in parameter_type_ids.iter().enumerate() {
+                        let param_type = result.type_registry
+                            .get_type(*param_id)
+                            .expect(&format!("comparator param {} type not found", i));
+                        assert_eq!(param_type.pointer_depth, 1, "Comparator param {} should be a pointer", i);
+                        assert!(param_type.is_const, "Comparator param {} should be const", i);
+                    }
+
+                    // Not variadic
+                    assert!(!is_variadic, "Comparator should not be variadic");
+                }
+                _ => panic!("Comparator should resolve to a Function type, got: {:?}", aliased_type.kind),
+            }
+        }
+        _ => panic!("Comparator should be a Typedef, got: {:?}", comparator_param_type.kind),
+    }
+}
+
+#[test]
+/// test function pointer formatting in signatures
+fn test_function_pointer_signature_formatting() {
+    let path = PathBuf::from("test_c/testlib.o");
+    let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
+    let result = analyzer
+        .extract_analysis(false)
+        .expect("fail to extract analysis");
+
+    // Find register_callback
+    let sig = result.signatures
+        .iter()
+        .find(|s| s.name == "register_callback")
+        .expect("register_callback not found");
+
+    let sig_str = sig.to_string(&result.type_registry);
+
+    // Should contain the typedef name in the signature
+    assert!(sig_str.contains("Callback"), "Signature should contain 'Callback': {}", sig_str);
+    assert!(sig_str.contains("void* userdata"), "Signature should contain 'void* userdata': {}", sig_str);
+}

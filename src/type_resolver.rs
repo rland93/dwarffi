@@ -166,6 +166,11 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
                     return Ok((kind, pointer_depth, is_const, is_volatile));
                 }
 
+                gimli::DW_TAG_subroutine_type => {
+                    let kind = self.extract_function_type(entry, current_offset)?;
+                    return Ok((kind, pointer_depth, is_const, is_volatile));
+                }
+
                 _ => {
                     // Placeholder for now
                     let kind = BaseTypeKind::Primitive {
@@ -259,9 +264,20 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
         let is_opaque = size == 0 && entry.attr(gimli::DW_AT_declaration)?.is_some();
 
         if is_opaque {
-            log::debug!("{:>12} {:#010x}: {} (opaque)", "struct", offset.0.into_u64(), name);
+            log::debug!(
+                "{:>12} {:#010x}: {} (opaque)",
+                "struct",
+                offset.0.into_u64(),
+                name
+            );
         } else {
-            log::debug!("{:>12} {:#010x}: {} ({} bytes)", "struct", offset.0.into_u64(), name, size);
+            log::debug!(
+                "{:>12} {:#010x}: {} ({} bytes)",
+                "struct",
+                offset.0.into_u64(),
+                name,
+                size
+            );
         }
 
         // extract fields (children of struct entry)
@@ -326,7 +342,13 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
                 0
             };
 
-            log::trace!("{:>12} {:#010x}: {} @ offset {}", "field", entry.offset().0.into_u64(), name, offset);
+            log::trace!(
+                "{:>12} {:#010x}: {} @ offset {}",
+                "field",
+                entry.offset().0.into_u64(),
+                name,
+                offset
+            );
 
             fields.push(crate::type_registry::StructField {
                 name,
@@ -354,7 +376,13 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
             .and_then(|attr| attr.udata_value())
             .unwrap_or(0) as usize;
 
-        log::debug!("{:>12} {:#010x}: {} ({} bytes)", "union", offset.0.into_u64(), name, size);
+        log::debug!(
+            "{:>12} {:#010x}: {} ({} bytes)",
+            "union",
+            offset.0.into_u64(),
+            name,
+            size
+        );
 
         let variants = self.extract_union_fields(offset)?;
 
@@ -432,7 +460,13 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
             .and_then(|attr| attr.udata_value())
             .unwrap_or(4) as usize; // Default to int size
 
-        log::debug!("{:>12} {:#010x}: {} ({} bytes)", "enum", offset.0.into_u64(), name, size);
+        log::debug!(
+            "{:>12} {:#010x}: {} ({} bytes)",
+            "enum",
+            offset.0.into_u64(),
+            name,
+            size
+        );
 
         // extract underlying type (DWARF DW_AT_type on enum)
         let backing_id = if let Some(attr) = entry.attr(gimli::DW_AT_type)? {
@@ -519,7 +553,13 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
 
         let total_size = element_size * count;
 
-        log::debug!("{:>12} {:#010x}: [{}] ({} bytes)", "array", offset.0.into_u64(), count, total_size);
+        log::debug!(
+            "{:>12} {:#010x}: [{}] ({} bytes)",
+            "array",
+            offset.0.into_u64(),
+            count,
+            total_size
+        );
 
         Ok(BaseTypeKind::Array {
             element_type_id,
@@ -555,6 +595,84 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
 
         // unknown/unbounded array
         Ok(0)
+    }
+
+    fn extract_function_type(
+        &mut self,
+        entry: &DebuggingInformationEntry<R>,
+        offset: UnitOffset<R::Offset>,
+    ) -> Result<BaseTypeKind> {
+        log::debug!(
+            "{:>12} {:#010x}: function type",
+            "function",
+            offset.0.into_u64()
+        );
+
+        // extract return type from DW_AT_type (none = void)
+        let return_type_id = if let Some(attr) = entry.attr(gimli::DW_AT_type)? {
+            if let AttributeValue::UnitRef(type_offset) = attr.value() {
+                Some(self.build_type_registry_entry(type_offset)?)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // extract parameters from children
+        let (parameter_type_ids, is_variadic) = self.extract_function_parameters(offset)?;
+
+        log::debug!(
+            "extracted function type: {} params, variadic={}",
+            parameter_type_ids.len(),
+            is_variadic
+        );
+
+        Ok(BaseTypeKind::Function {
+            return_type_id,
+            parameter_type_ids,
+            is_variadic,
+        })
+    }
+
+    fn extract_function_parameters(
+        &mut self,
+        func_offset: UnitOffset<R::Offset>,
+    ) -> Result<(Vec<TypeId>, bool)> {
+        let mut parameter_type_ids = Vec::new();
+        let mut is_variadic = false;
+
+        let mut tree = self.unit.entries_tree(Some(func_offset))?;
+        let func_node = tree.root()?;
+
+        let mut children = func_node.children();
+        while let Some(child) = children.next()? {
+            let entry = child.entry();
+
+            match entry.tag() {
+                gimli::DW_TAG_formal_parameter => {
+                    // Extract parameter type
+                    if let Some(attr) = entry.attr(gimli::DW_AT_type)? {
+                        if let AttributeValue::UnitRef(type_offset) = attr.value() {
+                            let param_type_id = self.build_type_registry_entry(type_offset)?;
+                            parameter_type_ids.push(param_type_id);
+                            log::trace!("{:>12} parameter type added", "function");
+                        }
+                    }
+                }
+
+                gimli::DW_TAG_unspecified_parameters => {
+                    is_variadic = true;
+                    log::trace!("{:>12} variadic detected", "function");
+                }
+
+                _ => {
+                    // Ignore other children
+                }
+            }
+        }
+
+        Ok((parameter_type_ids, is_variadic))
     }
 
     fn get_or_create_int_type(&mut self) -> Result<TypeId> {
