@@ -8,10 +8,11 @@ fn test_extract_types_from_testlib() {
         "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib"
     )).expect("Failed to load test library");
 
-    // Extract type registry (exported functions only)
-    let registry = analyzer
-        .extract_type_registry(true)
-        .expect("Failed to extract type registry");
+    // Extract analysis (exported functions only)
+    let result = analyzer
+        .extract_analysis(true)
+        .expect("Failed to extract analysis");
+    let registry = result.type_registry;
 
     // Should have some types
     assert!(
@@ -46,14 +47,13 @@ fn test_compare_with_string_extraction() {
         "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib"
     )).expect("Failed to load test library");
 
-    // Extract both string signatures and type registry
-    let signatures = analyzer
-        .extract_signatures(true)
-        .expect("Failed to extract signatures");
+    // Extract analysis
+    let result = analyzer
+        .extract_analysis(true)
+        .expect("Failed to extract analysis");
 
-    let registry = analyzer
-        .extract_type_registry(true)
-        .expect("Failed to extract type registry");
+    let signatures = &result.signatures;
+    let registry = &result.type_registry;
 
     // Both should work
     assert!(!signatures.is_empty(), "Should have function signatures");
@@ -77,9 +77,10 @@ fn test_no_dangling_references() {
         "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib"
     )).expect("Failed to load test library");
 
-    let registry = analyzer
-        .extract_type_registry(true)
-        .expect("Failed to extract type registry");
+    let result = analyzer
+        .extract_analysis(true)
+        .expect("Failed to extract analysis");
+    let registry = result.type_registry;
 
     // Collect all TypeIds that exist in the registry
     let existing_ids: HashSet<TypeId> = registry
@@ -147,9 +148,10 @@ fn test_nested_type_closure() {
         "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib"
     )).expect("Failed to load test library");
 
-    let registry = analyzer
-        .extract_type_registry(true)
-        .expect("Failed to extract type registry");
+    let result = analyzer
+        .extract_analysis(true)
+        .expect("Failed to extract analysis");
+    let registry = result.type_registry;
 
     // Find BoundingBox struct (if it exists)
     let bbox_types = registry.get_by_name("BoundingBox");
@@ -219,9 +221,10 @@ fn test_array_element_closure() {
         "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib"
     )).expect("Failed to load test library");
 
-    let registry = analyzer
-        .extract_type_registry(true)
-        .expect("Failed to extract type registry");
+    let result = analyzer
+        .extract_analysis(true)
+        .expect("Failed to extract analysis");
+    let registry = result.type_registry;
 
     // Find Person struct (if it exists) which has char name[64]
     let person_types = registry.get_by_name("Person");
@@ -277,9 +280,10 @@ fn test_typedef_chain_closure() {
         "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib"
     )).expect("Failed to load test library");
 
-    let registry = analyzer
-        .extract_type_registry(true)
-        .expect("Failed to extract type registry");
+    let result = analyzer
+        .extract_analysis(true)
+        .expect("Failed to extract analysis");
+    let registry = result.type_registry;
 
     // Look for typedef types
     let mut typedef_count = 0;

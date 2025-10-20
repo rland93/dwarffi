@@ -29,7 +29,6 @@ struct Cli {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // initialize logger based on verbosity level and quiet flag
     init_logger(cli.verbose, cli.quiet);
 
     let exported_only = !cli.all;
@@ -48,10 +47,9 @@ fn main() -> Result<()> {
     debug!("load library file: {}", cli.library.display());
     let analyzer = DwarfAnalyzer::from_file(&cli.library)?;
 
-    // Extract function signatures
-    let signatures = analyzer.extract_signatures(exported_only)?;
+    let result = analyzer.extract_analysis(exported_only)?;
 
-    if signatures.is_empty() {
+    if result.signatures.is_empty() {
         warn!(
             "no functions found in the library. maybe you compiled without debug info, or stripped the binary?"
         );
@@ -59,12 +57,12 @@ fn main() -> Result<()> {
     }
 
     // sort signatures by name for consistent output
-    let mut sorted_sigs = signatures;
+    let mut sorted_sigs = result.signatures;
     sorted_sigs.sort_by(|a, b| a.name.cmp(&b.name));
 
     // print each signature
     for sig in sorted_sigs {
-        println!("{};", sig.to_string());
+        println!("{};", sig.to_string(&result.type_registry));
     }
 
     Ok(())

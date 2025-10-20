@@ -2,6 +2,7 @@ use serde::Serialize;
 /// type registry for storing and managing C type information extracted from DWARF
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use log;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct TypeId(pub u64);
@@ -314,7 +315,7 @@ fn compute_type_id(
     let bytes = bincode::DefaultOptions::new()
         .with_fixint_encoding() // Ensure consistent integer encoding
         .serialize(&(canonical, pointer_depth, is_const, is_volatile))
-        .expect("serialization should not fail");
+        .expect("serialization cannot fail");
 
     let mut hasher = DefaultHasher::new();
     bytes.hash(&mut hasher);
@@ -351,6 +352,7 @@ impl TypeRegistry {
 
         // check if already exists (automatic deduplication!)
         if self.types.contains_key(&id) {
+            log::trace!("type already registered with id {:016x}", id.0);
             return id; // Same structure = same ID, already registered
         }
 
@@ -361,6 +363,8 @@ impl TypeRegistry {
         }
 
         let name = type_.get_name();
+        log::trace!("registered type {} with id {:016x}", name, id.0);
+
         self.name_to_ids
             .entry(name)
             .or_insert_with(Vec::new)
@@ -387,7 +391,7 @@ impl TypeRegistry {
     pub fn get_by_name(&self, name: &str) -> Vec<&Type> {
         self.name_to_ids
             .get(name)
-            .map(|ids| ids.iter().filter_map(|id| self.types.get(id)).collect())
+            .map(|ids: &Vec<TypeId>| ids.iter().filter_map(|id| self.types.get(id)).collect())
             .unwrap_or_default()
     }
 
@@ -405,6 +409,9 @@ impl TypeRegistry {
 
     /// merge another registry into this one.
     pub fn merge(&mut self, other: TypeRegistry) {
+        let initial_count = self.len();
+        let merging_count = other.len();
+
         // union the types (content-addressed, so same ID = same type)
         for (id, type_) in other.types {
             self.types.entry(id).or_insert(type_);
@@ -424,6 +431,12 @@ impl TypeRegistry {
         for (offset, id) in other.dwarf_to_id {
             self.dwarf_to_id.entry(offset).or_insert(id);
         }
+
+        let final_count = self.len();
+        let added = final_count - initial_count;
+        let duplicates = merging_count - added;
+        log::debug!("merged type registry: {} types, {} new, {} duplicates",
+                    merging_count, added, duplicates);
     }
 }
 
@@ -444,6 +457,48 @@ impl Type {
             BaseTypeKind::Array { .. } => "<array>".to_string(),
             BaseTypeKind::Function { .. } => "<function>".to_string(),
         }
+    }
+
+    /// c code string representation
+    pub fn to_c_string(&self, registry: &TypeRegistry) -> String {
+        let mut base_str = match &self.kind {
+            BaseTypeKind::Primitive { name, .. } => name.clone(),
+
+            BaseTypeKind::Struct { name, .. } => format!("struct {}", name),
+
+            BaseTypeKind::Union { name, .. } => format!("union {}", name),
+
+            BaseTypeKind::Enum { name, .. } => name.clone(),
+
+            BaseTypeKind::Array {
+                element_type_id,
+                count,
+                ..
+            } => {
+                let elem = registry
+                    .get_type(*element_type_id)
+                    .map(|t| t.to_c_string(registry))
+                    .unwrap_or_else(|| "void".to_string());
+                format!("{}[{}]", elem, count)
+            }
+
+            BaseTypeKind::Typedef { name, .. } => name.clone(),
+
+            BaseTypeKind::Function { .. } => "void (*)(...)".to_string(), // Simplified
+        };
+
+        if self.is_const {
+            base_str = format!("const {}", base_str);
+        }
+        if self.is_volatile {
+            base_str = format!("volatile {}", base_str);
+        }
+
+        for _ in 0..self.pointer_depth {
+            base_str.push('*');
+        }
+
+        base_str
     }
 }
 
@@ -968,10 +1023,6 @@ mod tests {
         assert_eq!(count, 2);
     }
 
-    // ========================================================================
-    // Phase 1 Tests: Content-Addressing Deduplication
-    // ========================================================================
-
     #[test]
     fn test_deduplication_same_primitive_twice() {
         let mut registry = TypeRegistry::new();
@@ -999,15 +1050,13 @@ mod tests {
             pointer_depth: 0,
             is_const: false,
             is_volatile: false,
-            dwarf_offset: Some(0x200), // Different DWARF offset!
+            dwarf_offset: Some(0x200), // different DWARF offset
         };
 
         let id1 = registry.register_type(int_type1);
         let id2 = registry.register_type(int_type2);
 
-        // Same structure = same TypeId
         assert_eq!(id1, id2);
-        // Only one entry in registry
         assert_eq!(registry.len(), 1);
     }
 
@@ -1082,15 +1131,13 @@ mod tests {
             pointer_depth: 0,
             is_const: false,
             is_volatile: false,
-            dwarf_offset: Some(0x2000), // Different offset
+            dwarf_offset: Some(0x2000), // different offset
         };
 
         let id1 = registry.register_type(point1);
         let id2 = registry.register_type(point2);
 
-        // Same structure = same TypeId
         assert_eq!(id1, id2);
-        // Two types total: int + Point
         assert_eq!(registry.len(), 2);
     }
 
@@ -1162,7 +1209,6 @@ mod tests {
         let id2 = registry.register_type(enum2);
 
         assert_eq!(id1, id2);
-        // Two types: int + Status enum
         assert_eq!(registry.len(), 2);
     }
 
@@ -1199,14 +1245,9 @@ mod tests {
         let int_id = registry.register_type(int_type);
         let float_id = registry.register_type(float_type);
 
-        // Different types = different IDs
         assert_ne!(int_id, float_id);
         assert_eq!(registry.len(), 2);
     }
-
-    // ========================================================================
-    // Phase 1 Tests: Canonical Ordering
-    // ========================================================================
 
     #[test]
     fn test_enum_variant_order_independence() {
@@ -1226,7 +1267,7 @@ mod tests {
         };
         let int_id = registry.register_type(int_type);
 
-        // Enum with variants in order: [OK, ERROR]
+        // order of enum variants: [OK, ERROR]
         let enum1 = Type {
             id: TypeId(0),
             kind: BaseTypeKind::Enum {
@@ -1250,7 +1291,7 @@ mod tests {
             dwarf_offset: None,
         };
 
-        // Enum with variants in DIFFERENT order: [ERROR, OK]
+        // order of enum variants: [ERROR, OK]
         let enum2 = Type {
             id: TypeId(0),
             kind: BaseTypeKind::Enum {
@@ -1277,9 +1318,8 @@ mod tests {
         let id1 = registry.register_type(enum1);
         let id2 = registry.register_type(enum2);
 
-        // Variant order shouldn't matter - canonical form sorts by name
+        // order does not matter
         assert_eq!(id1, id2);
-        // Only one enum registered
         assert_eq!(registry.len(), 2); // int + Status
     }
 
@@ -1315,7 +1355,7 @@ mod tests {
         };
         let float_id = registry.register_type(float_type);
 
-        // Union with variants in order: [as_int, as_float]
+        // variants in order: [as_int, as_float]
         let union1 = Type {
             id: TypeId(0),
             kind: BaseTypeKind::Union {
@@ -1339,7 +1379,7 @@ mod tests {
             dwarf_offset: None,
         };
 
-        // Union with variants in DIFFERENT order: [as_float, as_int]
+        // variants in different order: [as_float, as_int]
         let union2 = Type {
             id: TypeId(0),
             kind: BaseTypeKind::Union {
@@ -1366,9 +1406,9 @@ mod tests {
         let id1 = registry.register_type(union1);
         let id2 = registry.register_type(union2);
 
-        // Variant order shouldn't matter - canonical form sorts by name
+        // order does not matter - canonical form sorts by name
         assert_eq!(id1, id2);
-        // Three types: int, float, DataUnion
+        // int, float, DataUnion
         assert_eq!(registry.len(), 3);
     }
 
@@ -1390,7 +1430,7 @@ mod tests {
         };
         let int_id = registry.register_type(int_type);
 
-        // Struct with fields [x, y]
+        // struct with fields [x, y]
         let struct1 = Type {
             id: TypeId(0),
             kind: BaseTypeKind::Struct {
@@ -1419,7 +1459,7 @@ mod tests {
             dwarf_offset: None,
         };
 
-        // Struct with fields in DIFFERENT order: [y, x]
+        // struct with fields in DIFFERENT order: [y, x]
         let struct2 = Type {
             id: TypeId(0),
             kind: BaseTypeKind::Struct {
@@ -1451,9 +1491,9 @@ mod tests {
         let id1 = registry.register_type(struct1);
         let id2 = registry.register_type(struct2);
 
-        // Field order DOES matter for structs (memory layout)
+        // field order matters for structs (memory layout)
         assert_ne!(id1, id2);
-        // Three types: int, Point(x,y), Point(y,x)
+        // int, Point(x,y), Point(y,x)
         assert_eq!(registry.len(), 3);
     }
 
@@ -1489,7 +1529,7 @@ mod tests {
         };
         let float_id = registry.register_type(float_type);
 
-        // Function(int, float)
+        // function(int, float)
         let func1 = Type {
             id: TypeId(0),
             kind: BaseTypeKind::Function {
@@ -1503,7 +1543,7 @@ mod tests {
             dwarf_offset: None,
         };
 
-        // Function(float, int)
+        // function(float, int)
         let func2 = Type {
             id: TypeId(0),
             kind: BaseTypeKind::Function {
@@ -1520,15 +1560,11 @@ mod tests {
         let id1 = registry.register_type(func1);
         let id2 = registry.register_type(func2);
 
-        // Parameter order DOES matter (calling convention)
+        // parameter order matters
         assert_ne!(id1, id2);
-        // Four types: int, float, func1, func2
+        // int, float, func1, func2
         assert_eq!(registry.len(), 4);
     }
-
-    // ========================================================================
-    // Phase 1 Tests: Merge with Overlap
-    // ========================================================================
 
     #[test]
     fn test_merge_complete_overlap() {
@@ -1561,7 +1597,7 @@ mod tests {
             dwarf_offset: Some(0x200),
         };
 
-        // Both registries have the same types
+        // both registries have the same types
         registry1.register_type(int_type.clone());
         registry1.register_type(float_type.clone());
 
@@ -1573,7 +1609,7 @@ mod tests {
 
         registry1.merge(registry2);
 
-        // No duplication - still only 2 types
+        // no duplication - still only 2 types
         assert_eq!(registry1.len(), 2);
         assert_eq!(registry1.get_by_name("int").len(), 1);
         assert_eq!(registry1.get_by_name("float").len(), 1);
@@ -1636,7 +1672,7 @@ mod tests {
 
         registry1.merge(registry2);
 
-        // Three unique types: int, float, double
+        // int, float, double
         assert_eq!(registry1.len(), 3);
         assert_eq!(registry1.get_by_name("int").len(), 1);
         assert_eq!(registry1.get_by_name("float").len(), 1);
@@ -1648,7 +1684,7 @@ mod tests {
         let mut registry1 = TypeRegistry::new();
         let mut registry2 = TypeRegistry::new();
 
-        // Register int in registry2
+        // register int in registry2
         let int_type = Type {
             id: TypeId(0),
             kind: BaseTypeKind::Primitive {
@@ -1663,7 +1699,7 @@ mod tests {
         };
         let int_id_reg2 = registry2.register_type(int_type.clone());
 
-        // Register struct in registry2 that references int
+        // register struct in registry2 that references int
         let point_type = Type {
             id: TypeId(0),
             kind: BaseTypeKind::Struct {
@@ -1685,22 +1721,22 @@ mod tests {
         };
         registry2.register_type(point_type);
 
-        // Also register int in registry1 independently
+        // register int in registry1 independently
         let int_id_reg1 = registry1.register_type(int_type);
 
-        // Before merge
+        // before merge
         assert_eq!(registry2.len(), 2);
 
         // Merge
         registry1.merge(registry2);
 
-        // After merge: int + Point
+        // int + Point
         assert_eq!(registry1.len(), 2);
 
-        // The TypeIds should match because content-addressing
+        // TypeIds match because content-addressing
         assert_eq!(int_id_reg1, int_id_reg2);
 
-        // Verify Point still references correct int TypeId
+        // Point still references correct int TypeId
         let point_types = registry1.get_by_name("Point");
         assert_eq!(point_types.len(), 1);
 

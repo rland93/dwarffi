@@ -13,7 +13,7 @@ pub mod type_registry;
 mod type_resolver;
 pub mod types;
 
-pub use dwarf_analyzer::DwarfAnalyzer;
+pub use dwarf_analyzer::{AnalysisResult, DwarfAnalyzer};
 pub use type_registry::{
     BaseTypeKind, EnumVariant, StructField, Type, TypeId, TypeRegistry, UnionField,
 };

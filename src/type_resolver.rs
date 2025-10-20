@@ -1,211 +1,30 @@
 use crate::type_registry::{BaseTypeKind, Type, TypeId, TypeRegistry};
 use anyhow::{Result, anyhow};
 use gimli::{AttributeValue, DebuggingInformationEntry, Dwarf, ReaderOffset, Unit, UnitOffset};
-use std::collections::HashMap;
+use log;
 
-/// resolve DWARF type information into human-readable C type strings
+/// resolve DWARF type information into structured type registry
 pub struct TypeResolver<'dwarf, R: gimli::Reader> {
     dwarf: &'dwarf Dwarf<R>,
     unit: &'dwarf Unit<R>,
-    /// old: string based
-    type_cache: HashMap<UnitOffset<R::Offset>, String>,
-    /// new: structured
     type_registry: TypeRegistry,
 }
 
 impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
-    /// create new with empty cache with the given DWARF and unit
+    /// create new with empty registry with the given DWARF and unit
     pub fn new(dwarf: &'dwarf Dwarf<R>, unit: &'dwarf Unit<R>) -> Self {
         Self {
             dwarf,
             unit,
-            type_cache: HashMap::new(),
             type_registry: TypeRegistry::new(),
         }
     }
 
-    /// resolve a type from a DIE offset
-    pub fn resolve_type(&mut self, offset: UnitOffset<R::Offset>) -> Result<String> {
-        // check to see if it hasn't already been resolved
-        if let Some(cached) = self.type_cache.get(&offset) {
-            log::trace!(
-                "cache hit for offset @{:#010x}: {}",
-                offset.0.into_u64(),
-                cached
-            );
-            return Ok(cached.clone());
-        }
-
-        let mut entries = self.unit.entries_at_offset(offset)?;
-        let (_, entry) = entries
-            .next_dfs()?
-            .ok_or_else(|| anyhow!("no entry at offset"))?;
-
-        let type_name = self.resolve_type_entry(entry)?;
-
-        // add new type to cache
-        self.type_cache.insert(offset, type_name.clone());
-        log::debug!(
-            "{:>12} {:#010x}: {}",
-            "type",
-            offset.0.into_u64(),
-            type_name
-        );
-
-        // NEW: Also build structured type registry entry
-        let _ = self.build_type_registry_entry(offset);
-
-        Ok(type_name)
-    }
-
-    /// resolve a type from a DIE entry
-    fn resolve_type_entry(&mut self, entry: &DebuggingInformationEntry<R>) -> Result<String> {
-        match entry.tag() {
-            gimli::DW_TAG_base_type => self.resolve_base_type(entry),
-            gimli::DW_TAG_pointer_type => self.resolve_pointer_type(entry),
-            gimli::DW_TAG_const_type => self.resolve_const_type(entry),
-            gimli::DW_TAG_volatile_type => self.resolve_volatile_type(entry),
-            gimli::DW_TAG_typedef => self.resolve_typedef(entry),
-            gimli::DW_TAG_structure_type => self.resolve_structure_type(entry),
-            gimli::DW_TAG_union_type => self.resolve_union_type(entry),
-            gimli::DW_TAG_enumeration_type => self.resolve_enumeration_type(entry),
-            gimli::DW_TAG_array_type => self.resolve_array_type(entry),
-            gimli::DW_TAG_subroutine_type => self.resolve_subroutine_type(entry),
-            gimli::DW_TAG_unspecified_parameters => Ok("...".to_string()),
-            _ => Ok(format!("<unknown:{}>", entry.tag())),
-        }
-    }
-
-    /// resolve a base type (e.g., int, float)
-    fn resolve_base_type(&self, entry: &DebuggingInformationEntry<R>) -> Result<String> {
-        let name = self.get_name(entry)?;
-        Ok(name)
-    }
-
-    /// resolve a pointer type (e.g., int*)
-    fn resolve_pointer_type(&mut self, entry: &DebuggingInformationEntry<R>) -> Result<String> {
-        if let Some(type_attr) = entry.attr(gimli::DW_AT_type)? {
-            if let AttributeValue::UnitRef(offset) = type_attr.value() {
-                let base_type = self.resolve_type(offset)?;
-                return Ok(format!("{}*", base_type));
-            }
-        }
-
-        // void pointer if no type specified
-        Ok("void*".to_string())
-    }
-
-    /// resolve a const type (e.g., const int)
-    fn resolve_const_type(&mut self, entry: &DebuggingInformationEntry<R>) -> Result<String> {
-        if let Some(type_attr) = entry.attr(gimli::DW_AT_type)? {
-            if let AttributeValue::UnitRef(offset) = type_attr.value() {
-                let base_type = self.resolve_type(offset)?;
-                return Ok(format!("const {}", base_type));
-            }
-        }
-
-        // const void if no type specified
-        Ok("const void".to_string())
-    }
-
-    /// resolve a volatile type (e.g., volatile int)
-    fn resolve_volatile_type(&mut self, entry: &DebuggingInformationEntry<R>) -> Result<String> {
-        if let Some(type_attr) = entry.attr(gimli::DW_AT_type)? {
-            if let AttributeValue::UnitRef(offset) = type_attr.value() {
-                let base_type = self.resolve_type(offset)?;
-                return Ok(format!("volatile {}", base_type));
-            }
-        }
-
-        // volatile void if no type specified
-        Ok("volatile void".to_string())
-    }
-
-    /// resolve a typedef (e.g., typedef int my_int;)
-    fn resolve_typedef(&mut self, entry: &DebuggingInformationEntry<R>) -> Result<String> {
-        // first try to get the name
-        if let Ok(name) = self.get_name(entry) {
-            return Ok(name);
-        }
-
-        // then try to get the underlying type, if no name is specified
-        if let Some(type_attr) = entry.attr(gimli::DW_AT_type)? {
-            if let AttributeValue::UnitRef(offset) = type_attr.value() {
-                return self.resolve_type(offset);
-            }
-        }
-
-        Ok("void".to_string())
-    }
-
-    /// resolve a structure type (e.g., struct my_struct)
-    fn resolve_structure_type(&self, entry: &DebuggingInformationEntry<R>) -> Result<String> {
-        if let Ok(name) = self.get_name(entry) {
-            Ok(format!("struct {}", name))
-        } else {
-            Ok("struct <anonymous>".to_string())
-        }
-    }
-
-    /// resolve a union type (e.g., union my_union)
-    fn resolve_union_type(&self, entry: &DebuggingInformationEntry<R>) -> Result<String> {
-        if let Ok(name) = self.get_name(entry) {
-            Ok(format!("union {}", name))
-        } else {
-            Ok("union <anonymous>".to_string())
-        }
-    }
-
-    /// resolve an enumeration type (e.g., enum my_enum)
-    fn resolve_enumeration_type(&self, entry: &DebuggingInformationEntry<R>) -> Result<String> {
-        if let Ok(name) = self.get_name(entry) {
-            Ok(name)
-        } else {
-            Ok("enum <anonymous>".to_string())
-        }
-    }
-
-    /// resolve an array type (e.g., int[])
-    /// TODO FIXME!! arrays shown as pointer types for now
-    fn resolve_array_type(&mut self, entry: &DebuggingInformationEntry<R>) -> Result<String> {
-        if let Some(type_attr) = entry.attr(gimli::DW_AT_type)? {
-            if let AttributeValue::UnitRef(offset) = type_attr.value() {
-                let base_type = self.resolve_type(offset)?;
-                return Ok(format!("{}*", base_type));
-            }
-        }
-
-        Ok("void*".to_string())
-    }
-
-    /// resolve a subroutine type (e.g., function pointer)
-    /// TODO FIXME!!all function pointers are kept generic
-    fn resolve_subroutine_type(&self, _entry: &DebuggingInformationEntry<R>) -> Result<String> {
-        Ok("void (*)(...)".to_string())
-    }
-
-    /// helper to get name attribute
-    /// TODO FIXME!! unify this with logic in dwarf_analyzer module
-    fn get_name(&self, entry: &DebuggingInformationEntry<R>) -> Result<String> {
-        if let Some(attr) = entry.attr(gimli::DW_AT_name)? {
-            let name_reader = self.dwarf.attr_string(self.unit, attr.value())?;
-            let bytes = name_reader.to_slice()?;
-            let name_str = String::from_utf8(bytes.to_vec())?;
-            return Ok(name_str);
-        }
-
-        Err(anyhow!("no name attribute"))
-    }
-
-    /// return the current length of the cache
-    pub fn cache_len(&self) -> usize {
-        self.type_cache.len()
-    }
-
-    fn build_type_registry_entry(&mut self, offset: UnitOffset<R::Offset>) -> Result<TypeId> {
+    pub fn build_type_registry_entry(&mut self, offset: UnitOffset<R::Offset>) -> Result<TypeId> {
         let dwarf_offset = offset.0.into_u64();
 
         if let Some(type_) = self.type_registry.get_by_dwarf_offset(dwarf_offset) {
+            log::trace!("type already registered at offset {:#010x}", dwarf_offset);
             return Ok(type_.id);
         }
 
@@ -213,6 +32,8 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
         let (_, entry) = entries
             .next_dfs()?
             .ok_or_else(|| anyhow!("no entry at offset"))?;
+
+        log::trace!("extracting type at offset {:#010x}", dwarf_offset);
 
         let (kind, pointer_depth, is_const, is_volatile) =
             self.extract_type_metadata(entry, offset)?;
@@ -228,6 +49,21 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
 
         let id = self.type_registry.register_type(extracted_type);
         Ok(id)
+    }
+
+    pub fn get_void_type_id(&mut self) -> Result<TypeId> {
+        self.get_or_create_void_type()
+    }
+
+    fn get_name(&self, entry: &DebuggingInformationEntry<R>) -> Result<String> {
+        if let Some(attr) = entry.attr(gimli::DW_AT_name)? {
+            let name_reader = self.dwarf.attr_string(self.unit, attr.value())?;
+            let bytes = name_reader.to_slice()?;
+            let name_str = String::from_utf8(bytes.to_vec())?;
+            return Ok(name_str);
+        }
+
+        Err(anyhow!("no name attribute"))
     }
 
     fn extract_type_metadata(
@@ -249,7 +85,7 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
             match entry.tag() {
                 gimli::DW_TAG_pointer_type => {
                     pointer_depth += 1;
-                    // Follow to pointee
+                    // follow to pointee
                     if let Some(attr) = entry.attr(gimli::DW_AT_type)? {
                         if let AttributeValue::UnitRef(next_offset) = attr.value() {
                             current_offset = next_offset;
@@ -285,7 +121,7 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
 
                 gimli::DW_TAG_volatile_type => {
                     is_volatile = true;
-                    // Follow to inner type
+                    // follow to inner type
                     if let Some(attr) = entry.attr(gimli::DW_AT_type)? {
                         if let AttributeValue::UnitRef(next_offset) = attr.value() {
                             current_offset = next_offset;
@@ -350,10 +186,12 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
             .and_then(|attr| attr.udata_value())
             .unwrap_or(0) as usize;
 
+        log::trace!("{:>12} {} ({} bytes)", "primitive", name, size);
+
         Ok(BaseTypeKind::Primitive {
             name,
             size,
-            alignment: size, // Assume alignment = size for primitives
+            alignment: size, // alignment = size for primitives
         })
     }
 
@@ -372,6 +210,8 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
         } else {
             self.get_or_create_void_type()?
         };
+
+        log::debug!("{:>12} {}", "typedef", name);
 
         Ok(BaseTypeKind::Typedef {
             name,
@@ -406,20 +246,25 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
         entry: &DebuggingInformationEntry<R>,
         offset: UnitOffset<R::Offset>,
     ) -> Result<BaseTypeKind> {
-        let name = self.get_name(entry).unwrap_or_else(|_| "<anonymous>".to_string());
+        let name = self
+            .get_name(entry)
+            .unwrap_or_else(|_| "<anonymous>".to_string());
 
         let size = entry
             .attr(gimli::DW_AT_byte_size)?
             .and_then(|attr| attr.udata_value())
             .unwrap_or(0) as usize;
 
-        // Check if opaque (declaration only, no byte_size)
-        let is_opaque = size == 0
-            && entry
-                .attr(gimli::DW_AT_declaration)?
-                .is_some();
+        //check if opaque (declaration only, no byte_size)
+        let is_opaque = size == 0 && entry.attr(gimli::DW_AT_declaration)?.is_some();
 
-        // Extract fields (children of struct entry)
+        if is_opaque {
+            log::debug!("{:>12} {:#010x}: {} (opaque)", "struct", offset.0.into_u64(), name);
+        } else {
+            log::debug!("{:>12} {:#010x}: {} ({} bytes)", "struct", offset.0.into_u64(), name, size);
+        }
+
+        // extract fields (children of struct entry)
         let fields = self.extract_struct_fields(offset)?;
 
         let alignment = fields.iter().map(|f| f.size).max().unwrap_or(1);
@@ -455,9 +300,11 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
                 if let AttributeValue::UnitRef(offset) = attr.value() {
                     self.build_type_registry_entry(offset)?
                 } else {
+                    log::trace!("skip field {} with invalid type reference", name);
                     continue;
                 }
             } else {
+                log::trace!("skip field {} with no type", name);
                 continue;
             };
 
@@ -479,6 +326,8 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
                 0
             };
 
+            log::trace!("{:>12} {:#010x}: {} @ offset {}", "field", entry.offset().0.into_u64(), name, offset);
+
             fields.push(crate::type_registry::StructField {
                 name,
                 type_id,
@@ -487,6 +336,7 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
             });
         }
 
+        log::debug!("extracted {} fields", fields.len());
         Ok(fields)
     }
 
@@ -495,25 +345,29 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
         entry: &DebuggingInformationEntry<R>,
         offset: UnitOffset<R::Offset>,
     ) -> Result<BaseTypeKind> {
-        let name = self.get_name(entry).unwrap_or_else(|_| "<anonymous>".to_string());
+        let name = self
+            .get_name(entry)
+            .unwrap_or_else(|_| "<anonymous>".to_string());
 
         let size = entry
             .attr(gimli::DW_AT_byte_size)?
             .and_then(|attr| attr.udata_value())
             .unwrap_or(0) as usize;
 
+        log::debug!("{:>12} {:#010x}: {} ({} bytes)", "union", offset.0.into_u64(), name, size);
+
         let variants = self.extract_union_fields(offset)?;
 
         let alignment = variants
             .iter()
             .filter_map(|v| {
-                self.type_registry.get_type(v.type_id).and_then(|t| {
-                    match &t.kind {
+                self.type_registry
+                    .get_type(v.type_id)
+                    .and_then(|t| match &t.kind {
                         BaseTypeKind::Primitive { alignment, .. } => Some(*alignment),
                         BaseTypeKind::Struct { alignment, .. } => Some(*alignment),
                         _ => None,
-                    }
-                })
+                    })
             })
             .max()
             .unwrap_or(1);
@@ -548,15 +402,19 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
                 if let AttributeValue::UnitRef(offset) = attr.value() {
                     self.build_type_registry_entry(offset)?
                 } else {
+                    log::trace!("skip variant {} with invalid type reference", name);
                     continue;
                 }
             } else {
+                log::trace!("skip variant {} with no type", name);
                 continue;
             };
 
+            log::trace!("{:>12} {}", "variant", name);
             variants.push(crate::type_registry::UnionField { name, type_id });
         }
 
+        log::debug!("extracted {} variants", variants.len());
         Ok(variants)
     }
 
@@ -565,14 +423,18 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
         entry: &DebuggingInformationEntry<R>,
         offset: UnitOffset<R::Offset>,
     ) -> Result<BaseTypeKind> {
-        let name = self.get_name(entry).unwrap_or_else(|_| "<anonymous>".to_string());
+        let name = self
+            .get_name(entry)
+            .unwrap_or_else(|_| "<anonymous>".to_string());
 
         let size = entry
             .attr(gimli::DW_AT_byte_size)?
             .and_then(|attr| attr.udata_value())
             .unwrap_or(4) as usize; // Default to int size
 
-        // Extract underlying type (DWARF DW_AT_type on enum)
+        log::debug!("{:>12} {:#010x}: {} ({} bytes)", "enum", offset.0.into_u64(), name, size);
+
+        // extract underlying type (DWARF DW_AT_type on enum)
         let backing_id = if let Some(attr) = entry.attr(gimli::DW_AT_type)? {
             if let AttributeValue::UnitRef(type_offset) = attr.value() {
                 self.build_type_registry_entry(type_offset)?
@@ -616,9 +478,11 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
                 .and_then(|attr| attr.sdata_value())
                 .unwrap_or(0);
 
+            log::trace!("{:>12} {} = {}", "enumerator", name, value);
             variants.push(crate::type_registry::EnumVariant { name, value });
         }
 
+        log::debug!("extracted {} enumerators", variants.len());
         Ok(variants)
     }
 
@@ -627,7 +491,7 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
         entry: &DebuggingInformationEntry<R>,
         offset: UnitOffset<R::Offset>,
     ) -> Result<BaseTypeKind> {
-        // Get element type
+        // get element type
         let element_type_id = if let Some(attr) = entry.attr(gimli::DW_AT_type)? {
             if let AttributeValue::UnitRef(type_offset) = attr.value() {
                 self.build_type_registry_entry(type_offset)?
@@ -638,10 +502,10 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
             return Err(anyhow!("array missing element type"));
         };
 
-        // Get array dimensions (subrange children)
+        // get array dimensions (subrange children)
         let count = self.extract_array_count(offset)?;
 
-        // Calculate size
+        // calculate size
         let element_type = self
             .type_registry
             .get_type(element_type_id)
@@ -654,6 +518,8 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
         };
 
         let total_size = element_size * count;
+
+        log::debug!("{:>12} {:#010x}: [{}] ({} bytes)", "array", offset.0.into_u64(), count, total_size);
 
         Ok(BaseTypeKind::Array {
             element_type_id,
@@ -687,7 +553,7 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
             }
         }
 
-        // Unknown/unbounded array
+        // unknown/unbounded array
         Ok(0)
     }
 
@@ -697,7 +563,7 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
             return Ok(int_type.id);
         }
 
-        // Create a default int type if not found
+        // create a default int type if not found
         let int_type = Type {
             id: TypeId(0),
             kind: BaseTypeKind::Primitive {

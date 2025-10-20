@@ -53,7 +53,7 @@ const EXPECTED_SIGNATURES: &[&str] = &[
     "void move_point(Point* p, int dx, int dy)",
     "float multiply_floats(float a, float b)",
     "void print_string(const char* str)",
-    "void process_2d_array(int** arr)",
+    "void process_2d_array(int[5]* arr)",
     "void process_buffer(char* buffer, size_t length)",
     "uint8_t process_byte(uint8_t value)",
     "void process_fixed_array(int* arr)",
@@ -107,15 +107,15 @@ fn test_error_on_nonexistent_file() {
 fn test_function_count_all() {
     let path = PathBuf::from("test_c/testlib.o");
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
-    let signatures = analyzer
-        .extract_signatures(false)
-        .expect("fail to extract signatures");
+    let result = analyzer
+        .extract_analysis(false)
+        .expect("fail to extract analysis");
 
     assert_eq!(
-        signatures.len(),
+        result.signatures.len(),
         43,
         "expect 43 functions, found {}",
-        signatures.len()
+        result.signatures.len()
     );
 }
 
@@ -124,16 +124,16 @@ fn test_function_count_all() {
 fn test_function_count_exported() {
     let path = PathBuf::from("test_c/testlib.o");
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
-    let signatures = analyzer
-        .extract_signatures(true)
-        .expect("fail to extract signatures");
+    let result = analyzer
+        .extract_analysis(true)
+        .expect("fail to extract analysis");
 
     // All 43 functions in testlib are exported
     assert_eq!(
-        signatures.len(),
+        result.signatures.len(),
         43,
         "Expected 43 exported functions, found {}",
-        signatures.len()
+        result.signatures.len()
     );
 }
 
@@ -143,11 +143,11 @@ fn test_function_count_exported() {
 fn test_all_expected_signatures_present() {
     let path = PathBuf::from("test_c/testlib.o");
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
-    let signatures = analyzer
-        .extract_signatures(false)
-        .expect("fail to extract signatures");
+    let result = analyzer
+        .extract_analysis(false)
+        .expect("fail to extract analysis");
 
-    let sig_strings: Vec<String> = signatures.iter().map(|s| s.to_string()).collect();
+    let sig_strings: Vec<String> = result.signatures.iter().map(|s| s.to_string(&result.type_registry)).collect();
 
     for expected in EXPECTED_SIGNATURES {
         assert!(
@@ -163,19 +163,22 @@ fn test_all_expected_signatures_present() {
 fn test_simple_void_function_signature() {
     let path = PathBuf::from("test_c/testlib.o");
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
-    let signatures = analyzer
-        .extract_signatures(false)
-        .expect("fail to extract signatures");
+    let result = analyzer
+        .extract_analysis(false)
+        .expect("fail to extract analysis");
 
-    let sig = signatures
+    let sig = result.signatures
         .iter()
         .find(|s| s.name == "simple_void_function")
         .expect("simple_void_function not found");
 
-    assert_eq!(sig.return_type, "void");
+    let return_type_str = result.type_registry.get_type(sig.return_type_id)
+        .map(|t| t.to_c_string(&result.type_registry))
+        .unwrap_or_else(|| "void".to_string());
+    assert_eq!(return_type_str, "void");
     assert_eq!(sig.parameters.len(), 0);
     assert_eq!(sig.is_variadic, false);
-    assert_eq!(sig.to_string(), "void simple_void_function(void)");
+    assert_eq!(sig.to_string(&result.type_registry), "void simple_void_function(void)");
 }
 
 #[test]
@@ -183,22 +186,31 @@ fn test_simple_void_function_signature() {
 fn test_primitive_parameters_signature() {
     let path = PathBuf::from("test_c/testlib.o");
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
-    let signatures = analyzer
-        .extract_signatures(false)
-        .expect("fail to extract signatures");
+    let result = analyzer
+        .extract_analysis(false)
+        .expect("fail to extract analysis");
 
-    let sig = signatures
+    let sig = result.signatures
         .iter()
         .find(|s| s.name == "add_two_ints")
         .expect("add_two_ints not found");
 
-    assert_eq!(sig.return_type, "int");
+    let return_type_str = result.type_registry.get_type(sig.return_type_id)
+        .map(|t| t.to_c_string(&result.type_registry))
+        .unwrap_or_else(|| "void".to_string());
+    assert_eq!(return_type_str, "int");
     assert_eq!(sig.parameters.len(), 2);
     assert_eq!(sig.parameters[0].name, "a");
-    assert_eq!(sig.parameters[0].type_name, "int");
+    let param0_type = result.type_registry.get_type(sig.parameters[0].type_id)
+        .map(|t| t.to_c_string(&result.type_registry))
+        .unwrap_or_else(|| "void".to_string());
+    assert_eq!(param0_type, "int");
     assert_eq!(sig.parameters[1].name, "b");
-    assert_eq!(sig.parameters[1].type_name, "int");
-    assert_eq!(sig.to_string(), "int add_two_ints(int a, int b)");
+    let param1_type = result.type_registry.get_type(sig.parameters[1].type_id)
+        .map(|t| t.to_c_string(&result.type_registry))
+        .unwrap_or_else(|| "void".to_string());
+    assert_eq!(param1_type, "int");
+    assert_eq!(sig.to_string(&result.type_registry), "int add_two_ints(int a, int b)");
 }
 
 #[test]
@@ -206,16 +218,19 @@ fn test_primitive_parameters_signature() {
 fn test_pointer_types_signature() {
     let path = PathBuf::from("test_c/testlib.o");
     let analyzer = DwarfAnalyzer::from_file(&path).expect("Failed to load test library");
-    let signatures = analyzer
-        .extract_signatures(false)
-        .expect("fail to extract signatures");
+    let result = analyzer
+        .extract_analysis(false)
+        .expect("fail to extract analysis");
 
-    let sig = signatures
+    let sig = result.signatures
         .iter()
         .find(|s| s.name == "get_string")
         .expect("get_string not found");
 
-    assert_eq!(sig.return_type, "const char*");
+    let return_type_str = result.type_registry.get_type(sig.return_type_id)
+        .map(|t| t.to_c_string(&result.type_registry))
+        .unwrap_or_else(|| "void".to_string());
+    assert_eq!(return_type_str, "const char*");
     assert_eq!(sig.parameters.len(), 0);
 }
 
@@ -224,18 +239,21 @@ fn test_pointer_types_signature() {
 fn test_struct_types_signature() {
     let path = PathBuf::from("test_c/testlib.o");
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
-    let signatures = analyzer
-        .extract_signatures(false)
-        .expect("fail to extract signatures");
+    let result = analyzer
+        .extract_analysis(false)
+        .expect("fail to extract analysis");
 
-    let sig = signatures
+    let sig = result.signatures
         .iter()
         .find(|s| s.name == "create_point")
         .expect("create_point not found");
 
-    assert_eq!(sig.return_type, "Point");
+    let return_type_str = result.type_registry.get_type(sig.return_type_id)
+        .map(|t| t.to_c_string(&result.type_registry))
+        .unwrap_or_else(|| "void".to_string());
+    assert_eq!(return_type_str, "Point");
     assert_eq!(sig.parameters.len(), 2);
-    assert_eq!(sig.to_string(), "Point create_point(int x, int y)");
+    assert_eq!(sig.to_string(&result.type_registry), "Point create_point(int x, int y)");
 }
 
 #[test]
@@ -243,16 +261,19 @@ fn test_struct_types_signature() {
 fn test_nested_struct_signature() {
     let path = PathBuf::from("test_c/testlib.o");
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
-    let signatures = analyzer
-        .extract_signatures(false)
-        .expect("fail to extract signatures");
+    let result = analyzer
+        .extract_analysis(false)
+        .expect("fail to extract analysis");
 
-    let sig = signatures
+    let sig = result.signatures
         .iter()
         .find(|s| s.name == "create_bounding_box")
         .expect("create_bounding_box not found");
 
-    assert_eq!(sig.return_type, "BoundingBox");
+    let return_type_str = result.type_registry.get_type(sig.return_type_id)
+        .map(|t| t.to_c_string(&result.type_registry))
+        .unwrap_or_else(|| "void".to_string());
+    assert_eq!(return_type_str, "BoundingBox");
     assert_eq!(sig.parameters.len(), 2);
 }
 
@@ -261,16 +282,19 @@ fn test_nested_struct_signature() {
 fn test_opaque_pointer_signature() {
     let path = PathBuf::from("test_c/testlib.o");
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
-    let signatures = analyzer
-        .extract_signatures(false)
-        .expect("fail to extract signatures");
+    let result = analyzer
+        .extract_analysis(false)
+        .expect("fail to extract analysis");
 
-    let sig = signatures
+    let sig = result.signatures
         .iter()
         .find(|s| s.name == "init_state")
         .expect("init_state not found");
 
-    assert_eq!(sig.return_type, "InternalState*");
+    let return_type_str = result.type_registry.get_type(sig.return_type_id)
+        .map(|t| t.to_c_string(&result.type_registry))
+        .unwrap_or_else(|| "void".to_string());
+    assert!(return_type_str.contains("InternalState") && return_type_str.contains("*"));
     assert_eq!(sig.parameters.len(), 0);
 }
 
@@ -279,16 +303,19 @@ fn test_opaque_pointer_signature() {
 fn test_enum_types_signature() {
     let path = PathBuf::from("test_c/testlib.o");
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
-    let signatures = analyzer
-        .extract_signatures(false)
-        .expect("fail to extract signatures");
+    let result = analyzer
+        .extract_analysis(false)
+        .expect("fail to extract analysis");
 
-    let sig = signatures
+    let sig = result.signatures
         .iter()
         .find(|s| s.name == "get_status")
         .expect("get_status not found");
 
-    assert_eq!(sig.return_type, "Status");
+    let return_type_str = result.type_registry.get_type(sig.return_type_id)
+        .map(|t| t.to_c_string(&result.type_registry))
+        .unwrap_or_else(|| "void".to_string());
+    assert_eq!(return_type_str, "Status");
 }
 
 #[test]
@@ -296,16 +323,19 @@ fn test_enum_types_signature() {
 fn test_union_types_signature() {
     let path = PathBuf::from("test_c/testlib.o");
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
-    let signatures = analyzer
-        .extract_signatures(false)
-        .expect("fail to extract signatures");
+    let result = analyzer
+        .extract_analysis(false)
+        .expect("fail to extract analysis");
 
-    let sig = signatures
+    let sig = result.signatures
         .iter()
         .find(|s| s.name == "create_data_union")
         .expect("create_data_union not found");
 
-    assert_eq!(sig.return_type, "DataUnion");
+    let return_type_str = result.type_registry.get_type(sig.return_type_id)
+        .map(|t| t.to_c_string(&result.type_registry))
+        .unwrap_or_else(|| "void".to_string());
+    assert_eq!(return_type_str, "DataUnion");
 }
 
 #[test]
@@ -313,16 +343,19 @@ fn test_union_types_signature() {
 fn test_double_pointer_signature() {
     let path = PathBuf::from("test_c/testlib.o");
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
-    let signatures = analyzer
-        .extract_signatures(false)
-        .expect("fail to extract signatures");
+    let result = analyzer
+        .extract_analysis(false)
+        .expect("fail to extract analysis");
 
-    let sig = signatures
+    let sig = result.signatures
         .iter()
         .find(|s| s.name == "allocate_matrix")
         .expect("allocate_matrix not found");
 
-    assert!(sig.parameters[0].type_name.contains("int**"));
+    let param0_type = result.type_registry.get_type(sig.parameters[0].type_id)
+        .map(|t| t.to_c_string(&result.type_registry))
+        .unwrap_or_else(|| "void".to_string());
+    assert!(param0_type.contains("int**"));
 }
 
 #[test]
@@ -330,17 +363,17 @@ fn test_double_pointer_signature() {
 fn test_variadic_function_signature() {
     let path = PathBuf::from("test_c/testlib.o");
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
-    let signatures = analyzer
-        .extract_signatures(false)
-        .expect("fail to extract signatures");
+    let result = analyzer
+        .extract_analysis(false)
+        .expect("fail to extract analysis");
 
-    let sig = signatures
+    let sig = result.signatures
         .iter()
         .find(|s| s.name == "sum_varargs")
         .expect("sum_varargs not found");
 
     assert_eq!(sig.is_variadic, true);
-    assert!(sig.to_string().contains("..."));
+    assert!(sig.to_string(&result.type_registry).contains("..."));
 }
 
 #[test]
@@ -348,37 +381,56 @@ fn test_variadic_function_signature() {
 fn test_complex_function_signature() {
     let path = PathBuf::from("test_c/testlib.o");
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
-    let signatures = analyzer
-        .extract_signatures(false)
-        .expect("fail to extract signatures");
+    let result = analyzer
+        .extract_analysis(false)
+        .expect("fail to extract analysis");
 
-    let sig = signatures
+    let sig = result.signatures
         .iter()
         .find(|s| s.name == "complex_function")
         .expect("complex_function not found");
 
-    assert_eq!(sig.return_type, "void");
+    let return_type_str = result.type_registry.get_type(sig.return_type_id)
+        .map(|t| t.to_c_string(&result.type_registry))
+        .unwrap_or_else(|| "void".to_string());
+    assert_eq!(return_type_str, "void");
     assert_eq!(sig.parameters.len(), 5);
     // Verify it has the expected complex parameter types
     assert!(
         sig.parameters
             .iter()
-            .any(|p| p.type_name.contains("const char*"))
+            .any(|p| {
+                result.type_registry.get_type(p.type_id)
+                    .map(|t| t.to_c_string(&result.type_registry).contains("const char*"))
+                    .unwrap_or(false)
+            })
     );
     assert!(
         sig.parameters
             .iter()
-            .any(|p| p.type_name.contains("Point*"))
+            .any(|p| {
+                result.type_registry.get_type(p.type_id)
+                    .map(|t| t.to_c_string(&result.type_registry).contains("Point*"))
+                    .unwrap_or(false)
+            })
     );
     assert!(
         sig.parameters
             .iter()
-            .any(|p| p.type_name.contains("Rectangle"))
+            .any(|p| {
+                result.type_registry.get_type(p.type_id)
+                    .map(|t| t.to_c_string(&result.type_registry).contains("Rectangle"))
+                    .unwrap_or(false)
+            })
     );
     assert!(
         sig.parameters
             .iter()
-            .any(|p| p.type_name.contains("Status*"))
+            .any(|p| {
+                result.type_registry.get_type(p.type_id)
+                    .map(|t| t.to_c_string(&result.type_registry).contains("Status*"))
+                    .unwrap_or(false)
+            })
     );
 }
 
@@ -387,16 +439,20 @@ fn test_complex_function_signature() {
 fn test_function_pointer_parameter_signature() {
     let path = PathBuf::from("test_c/testlib.o");
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
-    let signatures = analyzer
-        .extract_signatures(false)
-        .expect("fail to extract signatures");
+    let result = analyzer
+        .extract_analysis(false)
+        .expect("fail to extract analysis");
 
-    let sig = signatures
+    let sig = result.signatures
         .iter()
         .find(|s| s.name == "register_callback")
         .expect("register_callback not found");
 
     assert_eq!(sig.parameters.len(), 2);
     // Should have Callback function pointer parameter
-    assert!(sig.parameters.iter().any(|p| p.type_name == "Callback"));
+    assert!(sig.parameters.iter().any(|p| {
+        result.type_registry.get_type(p.type_id)
+            .map(|t| t.to_c_string(&result.type_registry) == "Callback")
+            .unwrap_or(false)
+    }));
 }

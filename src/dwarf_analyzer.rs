@@ -12,6 +12,11 @@ pub struct DwarfAnalyzer {
     data: Vec<u8>,
 }
 
+pub struct AnalysisResult {
+    pub signatures: Vec<FunctionSignature>,
+    pub type_registry: TypeRegistry,
+}
+
 impl DwarfAnalyzer {
     pub fn new(data: Vec<u8>) -> Self {
         Self { data }
@@ -31,10 +36,9 @@ impl DwarfAnalyzer {
         Ok(symbols)
     }
 
-    /// extract all function signatures from DWARF debug info
-    pub fn extract_signatures(&self, exported_only: bool) -> Result<Vec<FunctionSignature>> {
+    /// extract function signatures and type registry from DWARF debug info
+    pub fn extract_analysis(&self, exported_only: bool) -> Result<AnalysisResult> {
         let section_loader = reader::object_section_loader(&self.data)?;
-
         let dwarf = Dwarf::load(section_loader)?;
         log::debug!("DWARF data load success");
 
@@ -45,9 +49,8 @@ impl DwarfAnalyzer {
             None
         };
 
-        // now we'll build up signatures
-        let mut signatures = Vec::new();
-
+        let mut all_signatures = Vec::new();
+        let mut combined_registry = TypeRegistry::new();
         let mut unit_iter = dwarf.units();
         let mut unit_count = 0;
 
@@ -56,125 +59,35 @@ impl DwarfAnalyzer {
             log::debug!("processing compilation unit {}", unit_count);
 
             let unit = dwarf.unit(header)?;
-
-            // get the signatures
-            let unit_sigs = self.extract_functions_from_unit(&dwarf, &unit, &exported_symbols)?;
-
-            log::debug!("found {} functions in unit {}", unit_sigs.len(), unit_count);
-            signatures.extend(unit_sigs);
-        }
-
-        log::info!(
-            "process {} compilation units, found {} total functions",
-            unit_count,
-            signatures.len()
-        );
-        Ok(signatures)
-    }
-
-    /// build a structured type registry alongside function extraction
-    pub fn extract_type_registry(&self, exported_only: bool) -> Result<TypeRegistry> {
-        let section_loader = reader::object_section_loader(&self.data)?;
-        let dwarf = Dwarf::load(section_loader)?;
-        log::debug!("DWARF data load success");
-
-        // export only?
-        let exported_symbols = if exported_only {
-            Some(self.get_exported_symbols()?)
-        } else {
-            None
-        };
-
-        let mut combined_registry = TypeRegistry::new();
-        let mut unit_iter = dwarf.units();
-        let mut unit_count = 0;
-
-        while let Some(header) = unit_iter.next()? {
-            unit_count += 1;
-            log::debug!("processing compilation unit {} for types", unit_count);
-
-            let unit = dwarf.unit(header)?;
             let mut type_resolver = TypeResolver::new(&dwarf, &unit);
 
-            // Trigger type resolution by extracting function signatures
-            // This builds the type registry as a side effect
-            let _sigs = self.extract_functions_from_unit_with_resolver(
+            // Extract function signatures with TypeId-based parameters
+            let unit_sigs = self.extract_functions_from_unit(
                 &dwarf,
                 &unit,
                 &exported_symbols,
                 &mut type_resolver,
             )?;
 
-            // Merge registry from this unit
+            log::debug!("found {} functions in unit {}", unit_sigs.len(), unit_count);
+            all_signatures.extend(unit_sigs);
+
+            // Merge type registry from this unit
             let unit_registry = type_resolver.into_registry();
             combined_registry.merge(unit_registry);
-
-            log::debug!("merged types from unit {}", unit_count);
         }
 
         log::info!(
-            "processed {} compilation units, extracted {} types",
+            "processed {} compilation units, found {} functions, extracted {} types",
             unit_count,
+            all_signatures.len(),
             combined_registry.len()
         );
-        Ok(combined_registry)
-    }
 
-    // Helper method that accepts a type_resolver parameter
-    fn extract_functions_from_unit_with_resolver(
-        &self,
-        dwarf: &Dwarf<reader::DwarfReader>,
-        unit: &gimli::Unit<reader::DwarfReader>,
-        exported_symbols: &Option<HashSet<String>>,
-        type_resolver: &mut TypeResolver<reader::DwarfReader>,
-    ) -> Result<Vec<FunctionSignature>> {
-        let mut signatures = Vec::new();
-        let mut entries = unit.entries();
-
-        while let Some((_, entry)) = entries.next_dfs()? {
-            if entry.tag() != gimli::DW_TAG_subprogram {
-                continue;
-            }
-
-            let name = match self.get_function_name(dwarf, unit, entry) {
-                Some(n) => n,
-                None => continue,
-            };
-
-            let is_exported = exported_symbols
-                .as_ref()
-                .map(|symbols| symbols.contains(&name) || symbols.contains(&format!("_{}", name)))
-                .unwrap_or(true);
-
-            if exported_symbols.is_some() && !is_exported {
-                continue;
-            }
-
-            // Extract return type (this triggers type registry building)
-            let return_type = if let Some(type_attr) = entry.attr(gimli::DW_AT_type)? {
-                if let AttributeValue::UnitRef(offset) = type_attr.value() {
-                    type_resolver.resolve_type(offset)?
-                } else {
-                    "void".to_string()
-                }
-            } else {
-                "void".to_string()
-            };
-
-            // Extract parameters (this also triggers type registry building)
-            let (parameters, is_variadic) =
-                self.extract_parameters(dwarf, unit, entry, type_resolver)?;
-
-            signatures.push(FunctionSignature {
-                name: name.clone(),
-                return_type,
-                parameters,
-                is_variadic,
-                is_exported,
-            });
-        }
-
-        Ok(signatures)
+        Ok(AnalysisResult {
+            signatures: all_signatures,
+            type_registry: combined_registry,
+        })
     }
 
     fn extract_functions_from_unit(
@@ -182,16 +95,10 @@ impl DwarfAnalyzer {
         dwarf: &Dwarf<reader::DwarfReader>,
         unit: &gimli::Unit<reader::DwarfReader>,
         exported_symbols: &Option<HashSet<String>>,
+        type_resolver: &mut TypeResolver<reader::DwarfReader>,
     ) -> Result<Vec<FunctionSignature>> {
         let mut signatures = Vec::new();
-        // type resolver is a stateful object that is carried along to extract
-        // types. it builds up an internal cache of types it sees, which is then
-        // resolved at the end. This is because we may encounter types in e.g.
-        // function parameters or return types that aren't defined until later
-        // in the DWARF info.
-        let mut type_resolver = TypeResolver::new(dwarf, unit);
         let mut function_count = 0;
-
         let mut entries = unit.entries();
 
         // DWARF entries are tree-like. functions are grouped with their return
@@ -232,33 +139,31 @@ impl DwarfAnalyzer {
                 continue;
             }
 
-            // extract the return type. no return type means void
-            let return_type = if let Some(type_attr) = entry.attr(gimli::DW_AT_type)? {
+            // extract the return type TypeId
+            let return_type_id = if let Some(type_attr) = entry.attr(gimli::DW_AT_type)? {
                 if let AttributeValue::UnitRef(offset) = type_attr.value() {
-                    type_resolver.resolve_type(offset)?
+                    type_resolver.build_type_registry_entry(offset)?
                 } else {
-                    "void".to_string()
+                    type_resolver.get_void_type_id()?
                 }
             } else {
-                "void".to_string()
+                type_resolver.get_void_type_id()?
             };
 
             log::debug!(
-                "{:>12} {:#010x}: {} {}()",
+                "{:>12} {:#010x}: {}()",
                 "function",
                 entry.offset().0,
-                return_type,
                 name
             );
 
             // extract the parameters
-            // parameters could have types,
             let (parameters, is_variadic) =
-                self.extract_parameters(dwarf, unit, entry, &mut type_resolver)?;
+                self.extract_parameters(dwarf, unit, entry, type_resolver)?;
 
             signatures.push(FunctionSignature {
                 name: name.clone(),
-                return_type,
+                return_type_id,
                 parameters,
                 is_variadic,
                 is_exported,
@@ -266,11 +171,10 @@ impl DwarfAnalyzer {
         }
 
         log::debug!(
-            "{:>12} {} function entries, {} signatures, {} types",
+            "{:>12} {} function entries, {} signatures extracted",
             "DONE",
             function_count,
-            signatures.len(),
-            type_resolver.cache_len()
+            signatures.len()
         );
         Ok(signatures)
     }
@@ -470,29 +374,28 @@ impl DwarfAnalyzer {
                         .and_then(|attr| Self::read_attr_string(dwarf, unit, &attr))
                         .unwrap_or_default();
 
-                    // Get parameter type
-                    let param_type =
+                    // Get parameter type TypeId
+                    let param_type_id =
                         if let Ok(Some(type_attr)) = child_entry.attr(gimli::DW_AT_type) {
                             if let AttributeValue::UnitRef(offset) = type_attr.value() {
-                                type_resolver.resolve_type(offset)?
+                                type_resolver.build_type_registry_entry(offset)?
                             } else {
-                                "void".to_string()
+                                type_resolver.get_void_type_id()?
                             }
                         } else {
-                            "void".to_string()
+                            type_resolver.get_void_type_id()?
                         };
 
                     log::debug!(
-                        "{:>12} {:#010x}: {} {}",
+                        "{:>12} {:#010x}: {}",
                         "parameter",
                         child_entry.offset().0,
-                        param_type,
                         param_name,
                     );
 
                     parameters.push(Parameter {
                         name: param_name,
-                        type_name: param_type,
+                        type_id: param_type_id,
                     });
                 }
 
