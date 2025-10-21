@@ -1,0 +1,24 @@
+[package]
+name = "dwarffi-js"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "javascript bindings generator for compiled C libraries. Works on C libraries compiled with DWARF debug info."
+
+[[bin]]
+name = "dwarffi-js"
+path = "src/main.rs"
+
+[dependencies]
+# Shared workspace dependencies
+anyhow.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+dwarffi.workspace = true
+
+# CLI-specific dependencies
+clap = { version = "4.5", features = ["derive"] }
+env_logger = "0.11"

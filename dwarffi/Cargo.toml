@@ -1,0 +1,24 @@
+[package]
+name = "dwarffi"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Library for extracting structured function signatures from C dynamic libraries via DWARF debug info"
+
+[lib]
+name = "dwarffi"
+path = "src/lib.rs"
+
+[dependencies]
+# shared
+anyhow.workspace = true
+log.workspace = true
+serde.workspace = true
+
+# library only
+gimli = "0.31"
+object = "0.36"
+memmap2 = "0.9"
+bincode = "1.3"

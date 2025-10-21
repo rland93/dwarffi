@@ -1,12 +1,13 @@
-use ffitool::DwarfAnalyzer;
+use dwarffi::DwarfAnalyzer;
 use std::path::Path;
 
 #[test]
 fn test_extract_types_from_testlib() {
     // Load the test library (use dSYM bundle for DWARF info)
     let analyzer = DwarfAnalyzer::from_file(Path::new(
-        "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib"
-    )).expect("Failed to load test library");
+        "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
+    ))
+    .expect("Failed to load test library");
 
     // Extract analysis (exported functions only)
     let result = analyzer
@@ -44,8 +45,9 @@ fn test_extract_types_from_testlib() {
 #[test]
 fn test_compare_with_string_extraction() {
     let analyzer = DwarfAnalyzer::from_file(Path::new(
-        "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib"
-    )).expect("Failed to load test library");
+        "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
+    ))
+    .expect("Failed to load test library");
 
     // Extract analysis
     let result = analyzer
@@ -70,12 +72,13 @@ fn test_compare_with_string_extraction() {
 
 #[test]
 fn test_no_dangling_references() {
-    use ffitool::{BaseTypeKind, TypeId};
+    use dwarffi::{BaseTypeKind, TypeId};
     use std::collections::HashSet;
 
     let analyzer = DwarfAnalyzer::from_file(Path::new(
-        "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib"
-    )).expect("Failed to load test library");
+        "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
+    ))
+    .expect("Failed to load test library");
 
     let result = analyzer
         .extract_analysis(true)
@@ -83,10 +86,7 @@ fn test_no_dangling_references() {
     let registry = result.type_registry;
 
     // Collect all TypeIds that exist in the registry
-    let existing_ids: HashSet<TypeId> = registry
-        .all_types()
-        .map(|t| t.id)
-        .collect();
+    let existing_ids: HashSet<TypeId> = registry.all_types().map(|t| t.id).collect();
 
     // Collect all referenced TypeIds
     let mut referenced_ids = HashSet::new();
@@ -106,13 +106,21 @@ fn test_no_dangling_references() {
             BaseTypeKind::Enum { backing_id, .. } => {
                 referenced_ids.insert(*backing_id);
             }
-            BaseTypeKind::Array { element_type_id, .. } => {
+            BaseTypeKind::Array {
+                element_type_id, ..
+            } => {
                 referenced_ids.insert(*element_type_id);
             }
-            BaseTypeKind::Typedef { aliased_type_id, .. } => {
+            BaseTypeKind::Typedef {
+                aliased_type_id, ..
+            } => {
                 referenced_ids.insert(*aliased_type_id);
             }
-            BaseTypeKind::Function { return_type_id, parameter_type_ids, .. } => {
+            BaseTypeKind::Function {
+                return_type_id,
+                parameter_type_ids,
+                ..
+            } => {
                 if let Some(id) = return_type_id {
                     referenced_ids.insert(*id);
                 }
@@ -142,11 +150,12 @@ fn test_no_dangling_references() {
 
 #[test]
 fn test_nested_type_closure() {
-    use ffitool::BaseTypeKind;
+    use dwarffi::BaseTypeKind;
 
     let analyzer = DwarfAnalyzer::from_file(Path::new(
-        "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib"
-    )).expect("Failed to load test library");
+        "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
+    ))
+    .expect("Failed to load test library");
 
     let result = analyzer
         .extract_analysis(true)
@@ -161,10 +170,11 @@ fn test_nested_type_closure() {
 
         // BoundingBox is a typedef, follow it to the struct
         let bbox_struct = match &bbox.kind {
-            BaseTypeKind::Typedef { aliased_type_id, .. } => {
-                registry.get_type(*aliased_type_id)
-                    .expect("BoundingBox typedef should reference a valid type")
-            }
+            BaseTypeKind::Typedef {
+                aliased_type_id, ..
+            } => registry
+                .get_type(*aliased_type_id)
+                .expect("BoundingBox typedef should reference a valid type"),
             BaseTypeKind::Struct { .. } => bbox,
             _ => panic!("BoundingBox should be a typedef or struct"),
         };
@@ -172,10 +182,7 @@ fn test_nested_type_closure() {
         // BoundingBox struct should have fields
         match &bbox_struct.kind {
             BaseTypeKind::Struct { fields, .. } => {
-                assert!(
-                    !fields.is_empty(),
-                    "BoundingBox should have fields"
-                );
+                assert!(!fields.is_empty(), "BoundingBox should have fields");
 
                 // Each field should reference a valid type
                 for field in fields {
@@ -188,7 +195,12 @@ fn test_nested_type_closure() {
 
                     // If it's a Point struct, verify it references int
                     if let Some(ft) = field_type {
-                        if let BaseTypeKind::Struct { name, fields: point_fields, .. } = &ft.kind {
+                        if let BaseTypeKind::Struct {
+                            name,
+                            fields: point_fields,
+                            ..
+                        } = &ft.kind
+                        {
                             if name == "Point" {
                                 // Point should have fields referencing int
                                 for pf in point_fields {
@@ -215,11 +227,12 @@ fn test_nested_type_closure() {
 
 #[test]
 fn test_array_element_closure() {
-    use ffitool::BaseTypeKind;
+    use dwarffi::BaseTypeKind;
 
     let analyzer = DwarfAnalyzer::from_file(Path::new(
-        "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib"
-    )).expect("Failed to load test library");
+        "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
+    ))
+    .expect("Failed to load test library");
 
     let result = analyzer
         .extract_analysis(true)
@@ -234,10 +247,11 @@ fn test_array_element_closure() {
 
         // Person might be a typedef, follow it to the struct
         let person_struct = match &person.kind {
-            BaseTypeKind::Typedef { aliased_type_id, .. } => {
-                registry.get_type(*aliased_type_id)
-                    .expect("Person typedef should reference a valid type")
-            }
+            BaseTypeKind::Typedef {
+                aliased_type_id, ..
+            } => registry
+                .get_type(*aliased_type_id)
+                .expect("Person typedef should reference a valid type"),
             BaseTypeKind::Struct { .. } => person,
             _ => panic!("Person should be a typedef or struct"),
         };
@@ -248,7 +262,12 @@ fn test_array_element_closure() {
                 for field in fields {
                     let field_type = registry.get_type(field.type_id);
                     if let Some(ft) = field_type {
-                        if let BaseTypeKind::Array { element_type_id, count, .. } = &ft.kind {
+                        if let BaseTypeKind::Array {
+                            element_type_id,
+                            count,
+                            ..
+                        } = &ft.kind
+                        {
                             // Verify element type exists
                             let element_type = registry.get_type(*element_type_id);
                             assert!(
@@ -274,11 +293,12 @@ fn test_array_element_closure() {
 
 #[test]
 fn test_typedef_chain_closure() {
-    use ffitool::BaseTypeKind;
+    use dwarffi::BaseTypeKind;
 
     let analyzer = DwarfAnalyzer::from_file(Path::new(
-        "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib"
-    )).expect("Failed to load test library");
+        "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
+    ))
+    .expect("Failed to load test library");
 
     let result = analyzer
         .extract_analysis(true)
@@ -290,7 +310,11 @@ fn test_typedef_chain_closure() {
     let mut chain_verified = 0;
 
     for type_ in registry.all_types() {
-        if let BaseTypeKind::Typedef { name, aliased_type_id } = &type_.kind {
+        if let BaseTypeKind::Typedef {
+            name,
+            aliased_type_id,
+        } = &type_.kind
+        {
             typedef_count += 1;
 
             // Verify aliased type exists
@@ -307,7 +331,10 @@ fn test_typedef_chain_closure() {
             loop {
                 if let Some(current) = registry.get_type(current_id) {
                     depth += 1;
-                    if let BaseTypeKind::Typedef { aliased_type_id, .. } = &current.kind {
+                    if let BaseTypeKind::Typedef {
+                        aliased_type_id, ..
+                    } = &current.kind
+                    {
                         current_id = *aliased_type_id;
                         if depth > 10 {
                             panic!("Typedef chain too deep (possible cycle)");

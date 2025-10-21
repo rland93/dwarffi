@@ -1,12 +1,11 @@
 use anyhow::Result;
 use clap::Parser;
-use dwarffi::DwarfAnalyzer;
 use log::{debug, info, warn};
 use std::path::PathBuf;
 
-/// dwarffi - extract function signatures from C libraries using DWARF debug information!
+/// dwarffi-js - extract C FFI signatures and generate JavaScript bindings
 #[derive(Parser)]
-#[command(name = "dwarffi")]
+#[command(name = "dwarffi-js")]
 #[command(version)]
 #[command(about = "extract function signatures from C libraries using DWARF debug info", long_about = None)]
 struct Cli {
@@ -14,16 +13,24 @@ struct Cli {
     library: PathBuf,
 
     /// show all functions (including internal/hidden ones)
-    #[arg(short, long)]
+    #[arg(long)]
     all: bool,
 
     /// suppress informational messages (only show signatures)
-    #[arg(short, long)]
+    #[arg(short = 'q', long)]
     quiet: bool,
 
     /// verbose logging to console (-v for info, -vv for debug, -vvv for trace)
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
+
+    /// Output JavaScript bindings using ref-struct-di
+    #[arg(long)]
+    js: bool,
+
+    /// Output JSON representation of types and functions
+    #[arg(short = 'j', long)]
+    json: bool,
 }
 
 fn main() -> Result<()> {
@@ -45,7 +52,7 @@ fn main() -> Result<()> {
 
     // load the library
     debug!("load library file: {}", cli.library.display());
-    let analyzer = DwarfAnalyzer::from_file(&cli.library)?;
+    let analyzer = dwarffi::DwarfAnalyzer::from_file(&cli.library)?;
 
     let result = analyzer.extract_analysis(exported_only)?;
 
@@ -60,9 +67,15 @@ fn main() -> Result<()> {
     let mut sorted_sigs = result.signatures;
     sorted_sigs.sort_by(|a, b| a.name.cmp(&b.name));
 
-    // print each signature
-    for sig in sorted_sigs {
-        println!("{};", sig.to_string(&result.type_registry));
+    if cli.json {
+        unimplemented!("JSON output not yet implemented");
+    } else if cli.js {
+        unimplemented!("JavaScript output not yet implemented");
+    } else {
+        // standard C signature output
+        for sig in &sorted_sigs {
+            println!("{};", sig.to_string(&result.type_registry));
+        }
     }
 
     Ok(())
