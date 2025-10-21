@@ -30,6 +30,7 @@ test on.
 --> [`dwarffi`](./dwarffi) - library. Parsing logic, type extraction, function extraction.
     not an executable, but can be included in other (rust) projects as a static 
     library.
+    
 --> [`dwarffi-js`](./dwarffi-js) - CLI tool (Rust) installable via `cargo install`. Also, NPM
     package, released via cargo-dist.
 
