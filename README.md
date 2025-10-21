@@ -1,4 +1,4 @@
-# ffitool
+# dwarffi
 
 *extract a structured representation of function signatures from a dynamic library*
 

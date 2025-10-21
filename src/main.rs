@@ -1,12 +1,12 @@
 use anyhow::Result;
 use clap::Parser;
-use ffitool::DwarfAnalyzer;
+use dwarffi::DwarfAnalyzer;
 use log::{debug, info, warn};
 use std::path::PathBuf;
 
-/// ffitool - extract function signatures from C libraries using DWARF debug information!
+/// dwarffi - extract function signatures from C libraries using DWARF debug information!
 #[derive(Parser)]
-#[command(name = "ffitool")]
+#[command(name = "dwarffi")]
 #[command(version)]
 #[command(about = "extract function signatures from C libraries using DWARF debug info", long_about = None)]
 struct Cli {

@@ -1,4 +1,4 @@
-use ffitool::DwarfAnalyzer;
+use dwarffi::DwarfAnalyzer;
 use std::path::PathBuf;
 
 /// get test library path per platform
@@ -147,7 +147,11 @@ fn test_all_expected_signatures_present() {
         .extract_analysis(false)
         .expect("fail to extract analysis");
 
-    let sig_strings: Vec<String> = result.signatures.iter().map(|s| s.to_string(&result.type_registry)).collect();
+    let sig_strings: Vec<String> = result
+        .signatures
+        .iter()
+        .map(|s| s.to_string(&result.type_registry))
+        .collect();
 
     for expected in EXPECTED_SIGNATURES {
         assert!(
@@ -167,18 +171,24 @@ fn test_simple_void_function_signature() {
         .extract_analysis(false)
         .expect("fail to extract analysis");
 
-    let sig = result.signatures
+    let sig = result
+        .signatures
         .iter()
         .find(|s| s.name == "simple_void_function")
         .expect("simple_void_function not found");
 
-    let return_type_str = result.type_registry.get_type(sig.return_type_id)
+    let return_type_str = result
+        .type_registry
+        .get_type(sig.return_type_id)
         .map(|t| t.to_c_string(&result.type_registry))
         .unwrap_or_else(|| "void".to_string());
     assert_eq!(return_type_str, "void");
     assert_eq!(sig.parameters.len(), 0);
     assert_eq!(sig.is_variadic, false);
-    assert_eq!(sig.to_string(&result.type_registry), "void simple_void_function(void)");
+    assert_eq!(
+        sig.to_string(&result.type_registry),
+        "void simple_void_function(void)"
+    );
 }
 
 #[test]
@@ -190,27 +200,37 @@ fn test_primitive_parameters_signature() {
         .extract_analysis(false)
         .expect("fail to extract analysis");
 
-    let sig = result.signatures
+    let sig = result
+        .signatures
         .iter()
         .find(|s| s.name == "add_two_ints")
         .expect("add_two_ints not found");
 
-    let return_type_str = result.type_registry.get_type(sig.return_type_id)
+    let return_type_str = result
+        .type_registry
+        .get_type(sig.return_type_id)
         .map(|t| t.to_c_string(&result.type_registry))
         .unwrap_or_else(|| "void".to_string());
     assert_eq!(return_type_str, "int");
     assert_eq!(sig.parameters.len(), 2);
     assert_eq!(sig.parameters[0].name, "a");
-    let param0_type = result.type_registry.get_type(sig.parameters[0].type_id)
+    let param0_type = result
+        .type_registry
+        .get_type(sig.parameters[0].type_id)
         .map(|t| t.to_c_string(&result.type_registry))
         .unwrap_or_else(|| "void".to_string());
     assert_eq!(param0_type, "int");
     assert_eq!(sig.parameters[1].name, "b");
-    let param1_type = result.type_registry.get_type(sig.parameters[1].type_id)
+    let param1_type = result
+        .type_registry
+        .get_type(sig.parameters[1].type_id)
         .map(|t| t.to_c_string(&result.type_registry))
         .unwrap_or_else(|| "void".to_string());
     assert_eq!(param1_type, "int");
-    assert_eq!(sig.to_string(&result.type_registry), "int add_two_ints(int a, int b)");
+    assert_eq!(
+        sig.to_string(&result.type_registry),
+        "int add_two_ints(int a, int b)"
+    );
 }
 
 #[test]
@@ -222,12 +242,15 @@ fn test_pointer_types_signature() {
         .extract_analysis(false)
         .expect("fail to extract analysis");
 
-    let sig = result.signatures
+    let sig = result
+        .signatures
         .iter()
         .find(|s| s.name == "get_string")
         .expect("get_string not found");
 
-    let return_type_str = result.type_registry.get_type(sig.return_type_id)
+    let return_type_str = result
+        .type_registry
+        .get_type(sig.return_type_id)
         .map(|t| t.to_c_string(&result.type_registry))
         .unwrap_or_else(|| "void".to_string());
     assert_eq!(return_type_str, "const char*");
@@ -243,17 +266,23 @@ fn test_struct_types_signature() {
         .extract_analysis(false)
         .expect("fail to extract analysis");
 
-    let sig = result.signatures
+    let sig = result
+        .signatures
         .iter()
         .find(|s| s.name == "create_point")
         .expect("create_point not found");
 
-    let return_type_str = result.type_registry.get_type(sig.return_type_id)
+    let return_type_str = result
+        .type_registry
+        .get_type(sig.return_type_id)
         .map(|t| t.to_c_string(&result.type_registry))
         .unwrap_or_else(|| "void".to_string());
     assert_eq!(return_type_str, "Point");
     assert_eq!(sig.parameters.len(), 2);
-    assert_eq!(sig.to_string(&result.type_registry), "Point create_point(int x, int y)");
+    assert_eq!(
+        sig.to_string(&result.type_registry),
+        "Point create_point(int x, int y)"
+    );
 }
 
 #[test]
@@ -265,12 +294,15 @@ fn test_nested_struct_signature() {
         .extract_analysis(false)
         .expect("fail to extract analysis");
 
-    let sig = result.signatures
+    let sig = result
+        .signatures
         .iter()
         .find(|s| s.name == "create_bounding_box")
         .expect("create_bounding_box not found");
 
-    let return_type_str = result.type_registry.get_type(sig.return_type_id)
+    let return_type_str = result
+        .type_registry
+        .get_type(sig.return_type_id)
         .map(|t| t.to_c_string(&result.type_registry))
         .unwrap_or_else(|| "void".to_string());
     assert_eq!(return_type_str, "BoundingBox");
@@ -286,12 +318,15 @@ fn test_opaque_pointer_signature() {
         .extract_analysis(false)
         .expect("fail to extract analysis");
 
-    let sig = result.signatures
+    let sig = result
+        .signatures
         .iter()
         .find(|s| s.name == "init_state")
         .expect("init_state not found");
 
-    let return_type_str = result.type_registry.get_type(sig.return_type_id)
+    let return_type_str = result
+        .type_registry
+        .get_type(sig.return_type_id)
         .map(|t| t.to_c_string(&result.type_registry))
         .unwrap_or_else(|| "void".to_string());
     assert!(return_type_str.contains("InternalState") && return_type_str.contains("*"));
@@ -307,12 +342,15 @@ fn test_enum_types_signature() {
         .extract_analysis(false)
         .expect("fail to extract analysis");
 
-    let sig = result.signatures
+    let sig = result
+        .signatures
         .iter()
         .find(|s| s.name == "get_status")
         .expect("get_status not found");
 
-    let return_type_str = result.type_registry.get_type(sig.return_type_id)
+    let return_type_str = result
+        .type_registry
+        .get_type(sig.return_type_id)
         .map(|t| t.to_c_string(&result.type_registry))
         .unwrap_or_else(|| "void".to_string());
     assert_eq!(return_type_str, "Status");
@@ -327,12 +365,15 @@ fn test_union_types_signature() {
         .extract_analysis(false)
         .expect("fail to extract analysis");
 
-    let sig = result.signatures
+    let sig = result
+        .signatures
         .iter()
         .find(|s| s.name == "create_data_union")
         .expect("create_data_union not found");
 
-    let return_type_str = result.type_registry.get_type(sig.return_type_id)
+    let return_type_str = result
+        .type_registry
+        .get_type(sig.return_type_id)
         .map(|t| t.to_c_string(&result.type_registry))
         .unwrap_or_else(|| "void".to_string());
     assert_eq!(return_type_str, "DataUnion");
@@ -347,12 +388,15 @@ fn test_double_pointer_signature() {
         .extract_analysis(false)
         .expect("fail to extract analysis");
 
-    let sig = result.signatures
+    let sig = result
+        .signatures
         .iter()
         .find(|s| s.name == "allocate_matrix")
         .expect("allocate_matrix not found");
 
-    let param0_type = result.type_registry.get_type(sig.parameters[0].type_id)
+    let param0_type = result
+        .type_registry
+        .get_type(sig.parameters[0].type_id)
         .map(|t| t.to_c_string(&result.type_registry))
         .unwrap_or_else(|| "void".to_string());
     assert!(param0_type.contains("int**"));
@@ -367,7 +411,8 @@ fn test_variadic_function_signature() {
         .extract_analysis(false)
         .expect("fail to extract analysis");
 
-    let sig = result.signatures
+    let sig = result
+        .signatures
         .iter()
         .find(|s| s.name == "sum_varargs")
         .expect("sum_varargs not found");
@@ -385,53 +430,48 @@ fn test_complex_function_signature() {
         .extract_analysis(false)
         .expect("fail to extract analysis");
 
-    let sig = result.signatures
+    let sig = result
+        .signatures
         .iter()
         .find(|s| s.name == "complex_function")
         .expect("complex_function not found");
 
-    let return_type_str = result.type_registry.get_type(sig.return_type_id)
+    let return_type_str = result
+        .type_registry
+        .get_type(sig.return_type_id)
         .map(|t| t.to_c_string(&result.type_registry))
         .unwrap_or_else(|| "void".to_string());
     assert_eq!(return_type_str, "void");
     assert_eq!(sig.parameters.len(), 5);
     // Verify it has the expected complex parameter types
-    assert!(
-        sig.parameters
-            .iter()
-            .any(|p| {
-                result.type_registry.get_type(p.type_id)
-                    .map(|t| t.to_c_string(&result.type_registry).contains("const char*"))
-                    .unwrap_or(false)
-            })
-    );
-    assert!(
-        sig.parameters
-            .iter()
-            .any(|p| {
-                result.type_registry.get_type(p.type_id)
-                    .map(|t| t.to_c_string(&result.type_registry).contains("Point*"))
-                    .unwrap_or(false)
-            })
-    );
-    assert!(
-        sig.parameters
-            .iter()
-            .any(|p| {
-                result.type_registry.get_type(p.type_id)
-                    .map(|t| t.to_c_string(&result.type_registry).contains("Rectangle"))
-                    .unwrap_or(false)
-            })
-    );
-    assert!(
-        sig.parameters
-            .iter()
-            .any(|p| {
-                result.type_registry.get_type(p.type_id)
-                    .map(|t| t.to_c_string(&result.type_registry).contains("Status*"))
-                    .unwrap_or(false)
-            })
-    );
+    assert!(sig.parameters.iter().any(|p| {
+        result
+            .type_registry
+            .get_type(p.type_id)
+            .map(|t| t.to_c_string(&result.type_registry).contains("const char*"))
+            .unwrap_or(false)
+    }));
+    assert!(sig.parameters.iter().any(|p| {
+        result
+            .type_registry
+            .get_type(p.type_id)
+            .map(|t| t.to_c_string(&result.type_registry).contains("Point*"))
+            .unwrap_or(false)
+    }));
+    assert!(sig.parameters.iter().any(|p| {
+        result
+            .type_registry
+            .get_type(p.type_id)
+            .map(|t| t.to_c_string(&result.type_registry).contains("Rectangle"))
+            .unwrap_or(false)
+    }));
+    assert!(sig.parameters.iter().any(|p| {
+        result
+            .type_registry
+            .get_type(p.type_id)
+            .map(|t| t.to_c_string(&result.type_registry).contains("Status*"))
+            .unwrap_or(false)
+    }));
 }
 
 #[test]
@@ -443,7 +483,8 @@ fn test_function_pointer_parameter_signature() {
         .extract_analysis(false)
         .expect("fail to extract analysis");
 
-    let sig = result.signatures
+    let sig = result
+        .signatures
         .iter()
         .find(|s| s.name == "register_callback")
         .expect("register_callback not found");
@@ -451,7 +492,9 @@ fn test_function_pointer_parameter_signature() {
     assert_eq!(sig.parameters.len(), 2);
     // Should have Callback function pointer parameter
     assert!(sig.parameters.iter().any(|p| {
-        result.type_registry.get_type(p.type_id)
+        result
+            .type_registry
+            .get_type(p.type_id)
             .map(|t| t.to_c_string(&result.type_registry) == "Callback")
             .unwrap_or(false)
     }));
@@ -460,7 +503,7 @@ fn test_function_pointer_parameter_signature() {
 #[test]
 /// test callback typedef resolution to function pointer
 fn test_callback_typedef_resolution() {
-    use ffitool::type_registry::BaseTypeKind;
+    use dwarffi::type_registry::BaseTypeKind;
 
     let path = PathBuf::from("test_c/testlib.o");
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
@@ -469,7 +512,8 @@ fn test_callback_typedef_resolution() {
         .expect("fail to extract analysis");
 
     // Find register_callback function: void register_callback(Callback cb, void* userdata);
-    let sig = result.signatures
+    let sig = result
+        .signatures
         .iter()
         .find(|s| s.name == "register_callback")
         .expect("register_callback not found");
@@ -477,59 +521,90 @@ fn test_callback_typedef_resolution() {
     assert_eq!(sig.parameters.len(), 2);
 
     // Get the Callback parameter type (first parameter)
-    let callback_param_type = result.type_registry
+    let callback_param_type = result
+        .type_registry
         .get_type(sig.parameters[0].type_id)
         .expect("callback parameter type not found");
 
     // Should be a Typedef
     match &callback_param_type.kind {
-        BaseTypeKind::Typedef { name, aliased_type_id } => {
+        BaseTypeKind::Typedef {
+            name,
+            aliased_type_id,
+        } => {
             assert_eq!(name, "Callback");
 
             // Follow typedef to the aliased type (should be pointer to function)
-            let aliased_type = result.type_registry
+            let aliased_type = result
+                .type_registry
                 .get_type(*aliased_type_id)
                 .expect("aliased type not found");
 
             // Should be a pointer (pointer_depth = 1)
-            assert_eq!(aliased_type.pointer_depth, 1, "Callback should be a function pointer");
+            assert_eq!(
+                aliased_type.pointer_depth, 1,
+                "Callback should be a function pointer"
+            );
 
             // The base type should be a Function
             match &aliased_type.kind {
-                BaseTypeKind::Function { return_type_id, parameter_type_ids, is_variadic } => {
+                BaseTypeKind::Function {
+                    return_type_id,
+                    parameter_type_ids,
+                    is_variadic,
+                } => {
                     // Verify return type is void
                     assert!(return_type_id.is_none(), "Callback should return void");
 
                     // Verify parameters: (int code, void* userdata)
-                    assert_eq!(parameter_type_ids.len(), 2, "Callback should have 2 parameters");
+                    assert_eq!(
+                        parameter_type_ids.len(),
+                        2,
+                        "Callback should have 2 parameters"
+                    );
 
                     // First parameter should be int
-                    let param0_type = result.type_registry
+                    let param0_type = result
+                        .type_registry
                         .get_type(parameter_type_ids[0])
                         .expect("callback param 0 type not found");
                     let param0_str = param0_type.to_c_string(&result.type_registry);
-                    assert!(param0_str.contains("int"), "First parameter should be int, got: {}", param0_str);
+                    assert!(
+                        param0_str.contains("int"),
+                        "First parameter should be int, got: {}",
+                        param0_str
+                    );
 
                     // Second parameter should be void*
-                    let param1_type = result.type_registry
+                    let param1_type = result
+                        .type_registry
                         .get_type(parameter_type_ids[1])
                         .expect("callback param 1 type not found");
-                    assert_eq!(param1_type.pointer_depth, 1, "Second parameter should be a pointer");
+                    assert_eq!(
+                        param1_type.pointer_depth, 1,
+                        "Second parameter should be a pointer"
+                    );
 
                     // Not variadic
                     assert!(!is_variadic, "Callback should not be variadic");
                 }
-                _ => panic!("Callback should resolve to a Function type, got: {:?}", aliased_type.kind),
+                _ => panic!(
+                    "Callback should resolve to a Function type, got: {:?}",
+                    aliased_type.kind
+                ),
             }
         }
-        _ => panic!("Callback should be a Typedef, got: {:?}", callback_param_type.kind),
+        _ => panic!(
+            "Callback should be a Typedef, got: {:?}",
+            callback_param_type.kind
+        ),
     }
 }
 
 #[test]
 /// test comparator typedef resolution to function pointer
 fn test_comparator_typedef_resolution() {
-    use ffitool::type_registry::BaseTypeKind;
+    use dwarffi::type_registry::BaseTypeKind;
 
     let path = PathBuf::from("test_c/testlib.o");
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
@@ -538,7 +613,8 @@ fn test_comparator_typedef_resolution() {
         .expect("fail to extract analysis");
 
     // Find sort_array function: void sort_array(int* arr, size_t count, Comparator cmp);
-    let sig = result.signatures
+    let sig = result
+        .signatures
         .iter()
         .find(|s| s.name == "sort_array")
         .expect("sort_array not found");
@@ -546,52 +622,87 @@ fn test_comparator_typedef_resolution() {
     assert_eq!(sig.parameters.len(), 3);
 
     // Get the Comparator parameter type (third parameter)
-    let comparator_param_type = result.type_registry
+    let comparator_param_type = result
+        .type_registry
         .get_type(sig.parameters[2].type_id)
         .expect("comparator parameter type not found");
 
     // Should be a Typedef
     match &comparator_param_type.kind {
-        BaseTypeKind::Typedef { name, aliased_type_id } => {
+        BaseTypeKind::Typedef {
+            name,
+            aliased_type_id,
+        } => {
             assert_eq!(name, "Comparator");
 
             // Follow typedef to the aliased type (should be pointer to function)
-            let aliased_type = result.type_registry
+            let aliased_type = result
+                .type_registry
                 .get_type(*aliased_type_id)
                 .expect("aliased type not found");
 
             // Should be a pointer (pointer_depth = 1)
-            assert_eq!(aliased_type.pointer_depth, 1, "Comparator should be a function pointer");
+            assert_eq!(
+                aliased_type.pointer_depth, 1,
+                "Comparator should be a function pointer"
+            );
 
             // The base type should be a Function
             match &aliased_type.kind {
-                BaseTypeKind::Function { return_type_id, parameter_type_ids, is_variadic } => {
+                BaseTypeKind::Function {
+                    return_type_id,
+                    parameter_type_ids,
+                    is_variadic,
+                } => {
                     // Verify return type is int
                     let return_type = return_type_id
                         .and_then(|id| result.type_registry.get_type(id))
                         .expect("comparator return type not found");
                     let return_str = return_type.to_c_string(&result.type_registry);
-                    assert!(return_str.contains("int"), "Comparator should return int, got: {}", return_str);
+                    assert!(
+                        return_str.contains("int"),
+                        "Comparator should return int, got: {}",
+                        return_str
+                    );
 
                     // Verify parameters: (const void* a, const void* b)
-                    assert_eq!(parameter_type_ids.len(), 2, "Comparator should have 2 parameters");
+                    assert_eq!(
+                        parameter_type_ids.len(),
+                        2,
+                        "Comparator should have 2 parameters"
+                    );
 
                     // Both parameters should be const void*
                     for (i, param_id) in parameter_type_ids.iter().enumerate() {
-                        let param_type = result.type_registry
+                        let param_type = result
+                            .type_registry
                             .get_type(*param_id)
                             .expect(&format!("comparator param {} type not found", i));
-                        assert_eq!(param_type.pointer_depth, 1, "Comparator param {} should be a pointer", i);
-                        assert!(param_type.is_const, "Comparator param {} should be const", i);
+                        assert_eq!(
+                            param_type.pointer_depth, 1,
+                            "Comparator param {} should be a pointer",
+                            i
+                        );
+                        assert!(
+                            param_type.is_const,
+                            "Comparator param {} should be const",
+                            i
+                        );
                     }
 
                     // Not variadic
                     assert!(!is_variadic, "Comparator should not be variadic");
                 }
-                _ => panic!("Comparator should resolve to a Function type, got: {:?}", aliased_type.kind),
+                _ => panic!(
+                    "Comparator should resolve to a Function type, got: {:?}",
+                    aliased_type.kind
+                ),
             }
         }
-        _ => panic!("Comparator should be a Typedef, got: {:?}", comparator_param_type.kind),
+        _ => panic!(
+            "Comparator should be a Typedef, got: {:?}",
+            comparator_param_type.kind
+        ),
     }
 }
 
@@ -605,7 +716,8 @@ fn test_function_pointer_signature_formatting() {
         .expect("fail to extract analysis");
 
     // Find register_callback
-    let sig = result.signatures
+    let sig = result
+        .signatures
         .iter()
         .find(|s| s.name == "register_callback")
         .expect("register_callback not found");
@@ -613,6 +725,14 @@ fn test_function_pointer_signature_formatting() {
     let sig_str = sig.to_string(&result.type_registry);
 
     // Should contain the typedef name in the signature
-    assert!(sig_str.contains("Callback"), "Signature should contain 'Callback': {}", sig_str);
-    assert!(sig_str.contains("void* userdata"), "Signature should contain 'void* userdata': {}", sig_str);
+    assert!(
+        sig_str.contains("Callback"),
+        "Signature should contain 'Callback': {}",
+        sig_str
+    );
+    assert!(
+        sig_str.contains("void* userdata"),
+        "Signature should contain 'void* userdata': {}",
+        sig_str
+    );
 }

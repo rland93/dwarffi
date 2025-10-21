@@ -1,4 +1,4 @@
-//! ffitool - extract function signatures from C libraries using DWARF debug
+//! dwarffi - extract function signatures from C libraries using DWARF debug
 //! information
 //!
 //! - only works for libraries compiled with DWARF info (e.g. gcc -g ...)
