@@ -194,14 +194,13 @@ fn test_nested_type_closure() {
                     );
 
                     // If it's a Point struct, verify it references int
-                    if let Some(ft) = field_type {
-                        if let BaseTypeKind::Struct {
+                    if let Some(ft) = field_type
+                        && let BaseTypeKind::Struct {
                             name,
                             fields: point_fields,
                             ..
                         } = &ft.kind
-                        {
-                            if name == "Point" {
+                            && name == "Point" {
                                 // Point should have fields referencing int
                                 for pf in point_fields {
                                     let pf_type = registry.get_type(pf.type_id);
@@ -212,8 +211,6 @@ fn test_nested_type_closure() {
                                     );
                                 }
                             }
-                        }
-                    }
                 }
             }
             _ => panic!("BoundingBox struct should be a struct type"),
@@ -261,8 +258,8 @@ fn test_array_element_closure() {
                 // Look for array field (name)
                 for field in fields {
                     let field_type = registry.get_type(field.type_id);
-                    if let Some(ft) = field_type {
-                        if let BaseTypeKind::Array {
+                    if let Some(ft) = field_type
+                        && let BaseTypeKind::Array {
                             element_type_id,
                             count,
                             ..
@@ -281,7 +278,6 @@ fn test_array_element_closure() {
                                 field.name, count
                             );
                         }
-                    }
                 }
             }
             _ => panic!("Person struct should be a struct type"),

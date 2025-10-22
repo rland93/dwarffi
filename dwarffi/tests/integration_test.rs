@@ -184,7 +184,7 @@ fn test_simple_void_function_signature() {
         .unwrap_or_else(|| "void".to_string());
     assert_eq!(return_type_str, "void");
     assert_eq!(sig.parameters.len(), 0);
-    assert_eq!(sig.is_variadic, false);
+    assert!(!sig.is_variadic);
     assert_eq!(
         sig.to_string(&result.type_registry),
         "void simple_void_function(void)"
@@ -417,7 +417,7 @@ fn test_variadic_function_signature() {
         .find(|s| s.name == "sum_varargs")
         .expect("sum_varargs not found");
 
-    assert_eq!(sig.is_variadic, true);
+    assert!(sig.is_variadic);
     assert!(sig.to_string(&result.type_registry).contains("..."));
 }
 
@@ -677,7 +677,7 @@ fn test_comparator_typedef_resolution() {
                         let param_type = result
                             .type_registry
                             .get_type(*param_id)
-                            .expect(&format!("comparator param {} type not found", i));
+                            .unwrap_or_else(|| panic!("comparator param {} type not found", i));
                         assert_eq!(
                             param_type.pointer_depth, 1,
                             "Comparator param {} should be a pointer",

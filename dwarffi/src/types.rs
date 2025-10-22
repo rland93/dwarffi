@@ -140,18 +140,33 @@ mod tests {
         registry
     }
 
-    fn get_type_id(registry: &TypeRegistry, name: &str, pointer_depth: usize, is_const: bool) -> TypeId {
-        registry.all_types()
+    fn get_type_id(
+        registry: &TypeRegistry,
+        name: &str,
+        pointer_depth: usize,
+        is_const: bool,
+    ) -> TypeId {
+        registry
+            .all_types()
             .find(|t| {
                 let name_matches = match &t.kind {
-                    BaseTypeKind::Primitive { name: type_name, .. } => type_name == name,
-                    BaseTypeKind::Struct { name: type_name, .. } => type_name == name,
+                    BaseTypeKind::Primitive {
+                        name: type_name, ..
+                    } => type_name == name,
+                    BaseTypeKind::Struct {
+                        name: type_name, ..
+                    } => type_name == name,
                     _ => false,
                 };
                 name_matches && t.pointer_depth == pointer_depth && t.is_const == is_const
             })
             .map(|t| t.id)
-            .expect(&format!("Type not found: {} (ptr={}, const={})", name, pointer_depth, is_const))
+            .unwrap_or_else(|| {
+                panic!(
+                    "Type not found: {} (ptr={}, const={})",
+                    name, pointer_depth, is_const
+                )
+            })
     }
 
     #[test]
@@ -231,7 +246,10 @@ mod tests {
             is_exported: true,
         };
 
-        assert_eq!(sig.to_string(&registry), "int printf(const char* format, ...)");
+        assert_eq!(
+            sig.to_string(&registry),
+            "int printf(const char* format, ...)"
+        );
     }
 
     #[test]
@@ -293,6 +311,9 @@ mod tests {
             is_exported: true,
         };
 
-        assert_eq!(sig.to_string(&registry), "struct Point create_point(int x, int y)");
+        assert_eq!(
+            sig.to_string(&registry),
+            "struct Point create_point(int x, int y)"
+        );
     }
 }
