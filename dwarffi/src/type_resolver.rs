@@ -1,7 +1,6 @@
 use crate::type_registry::{BaseTypeKind, Type, TypeId, TypeRegistry};
 use anyhow::{Result, anyhow};
 use gimli::{AttributeValue, DebuggingInformationEntry, Dwarf, ReaderOffset, Unit, UnitOffset};
-use log;
 
 /// resolve DWARF type information into structured type registry
 pub struct TypeResolver<'dwarf, R: gimli::Reader> {
@@ -86,12 +85,11 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
                 gimli::DW_TAG_pointer_type => {
                     pointer_depth += 1;
                     // follow to pointee
-                    if let Some(attr) = entry.attr(gimli::DW_AT_type)? {
-                        if let AttributeValue::UnitRef(next_offset) = attr.value() {
+                    if let Some(attr) = entry.attr(gimli::DW_AT_type)?
+                        && let AttributeValue::UnitRef(next_offset) = attr.value() {
                             current_offset = next_offset;
                             continue;
                         }
-                    }
                     // void* if no type attribute
                     let kind = BaseTypeKind::Primitive {
                         name: "void".to_string(),
@@ -104,12 +102,11 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
                 gimli::DW_TAG_const_type => {
                     is_const = true;
                     // Follow to inner type
-                    if let Some(attr) = entry.attr(gimli::DW_AT_type)? {
-                        if let AttributeValue::UnitRef(next_offset) = attr.value() {
+                    if let Some(attr) = entry.attr(gimli::DW_AT_type)?
+                        && let AttributeValue::UnitRef(next_offset) = attr.value() {
                             current_offset = next_offset;
                             continue;
                         }
-                    }
                     // const void if no type
                     let kind = BaseTypeKind::Primitive {
                         name: "void".to_string(),
@@ -122,12 +119,11 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
                 gimli::DW_TAG_volatile_type => {
                     is_volatile = true;
                     // follow to inner type
-                    if let Some(attr) = entry.attr(gimli::DW_AT_type)? {
-                        if let AttributeValue::UnitRef(next_offset) = attr.value() {
+                    if let Some(attr) = entry.attr(gimli::DW_AT_type)?
+                        && let AttributeValue::UnitRef(next_offset) = attr.value() {
                             current_offset = next_offset;
                             continue;
                         }
-                    }
                     let kind = BaseTypeKind::Primitive {
                         name: "void".to_string(),
                         size: 0,
@@ -578,18 +574,16 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
 
             if entry.tag() == gimli::DW_TAG_subrange_type {
                 // DW_AT_upper_bound or DW_AT_count
-                if let Some(attr) = entry.attr(gimli::DW_AT_count)? {
-                    if let Some(count) = attr.udata_value() {
+                if let Some(attr) = entry.attr(gimli::DW_AT_count)?
+                    && let Some(count) = attr.udata_value() {
                         return Ok(count as usize);
                     }
-                }
 
-                if let Some(attr) = entry.attr(gimli::DW_AT_upper_bound)? {
-                    if let Some(upper) = attr.udata_value() {
+                if let Some(attr) = entry.attr(gimli::DW_AT_upper_bound)?
+                    && let Some(upper) = attr.udata_value() {
                         // Count = upper_bound + 1 (0-indexed)
                         return Ok((upper + 1) as usize);
                     }
-                }
             }
         }
 
@@ -652,13 +646,12 @@ impl<'dwarf, R: gimli::Reader> TypeResolver<'dwarf, R> {
             match entry.tag() {
                 gimli::DW_TAG_formal_parameter => {
                     // Extract parameter type
-                    if let Some(attr) = entry.attr(gimli::DW_AT_type)? {
-                        if let AttributeValue::UnitRef(type_offset) = attr.value() {
+                    if let Some(attr) = entry.attr(gimli::DW_AT_type)?
+                        && let AttributeValue::UnitRef(type_offset) = attr.value() {
                             let param_type_id = self.build_type_registry_entry(type_offset)?;
                             parameter_type_ids.push(param_type_id);
                             log::trace!("{:>12} parameter type added", "function");
                         }
-                    }
                 }
 
                 gimli::DW_TAG_unspecified_parameters => {

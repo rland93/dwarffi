@@ -367,7 +367,7 @@ impl TypeRegistry {
 
         self.name_to_ids
             .entry(name)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(id);
 
         self.types.insert(id, type_);
@@ -419,7 +419,7 @@ impl TypeRegistry {
 
         // merge name index (deduplicate TypeIds)
         for (name, ids) in other.name_to_ids {
-            let existing = self.name_to_ids.entry(name).or_insert_with(Vec::new);
+            let existing = self.name_to_ids.entry(name).or_default();
             for id in ids {
                 if !existing.contains(&id) {
                     existing.push(id);

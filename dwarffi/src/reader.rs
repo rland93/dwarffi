@@ -20,7 +20,7 @@ pub fn load_file(path: &std::path::Path) -> Result<Vec<u8>> {
 pub fn object_section_loader(
     data: &[u8],
 ) -> Result<impl Fn(gimli::SectionId) -> Result<DwarfReader>> {
-    let object_file = object::File::parse(&*data)?;
+    let object_file = object::File::parse(data)?;
     log::debug!("parse object file success");
     let endianness = if object_file.is_little_endian() {
         RunTimeEndian::Little

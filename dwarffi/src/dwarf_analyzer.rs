@@ -5,7 +5,6 @@ use crate::type_resolver::TypeResolver;
 use crate::types::{FunctionSignature, Parameter};
 use anyhow::Result;
 use gimli::{AttributeValue, Dwarf, Reader};
-use log;
 use std::collections::HashSet;
 
 pub struct DwarfAnalyzer {
@@ -150,12 +149,7 @@ impl DwarfAnalyzer {
                 type_resolver.get_void_type_id()?
             };
 
-            log::debug!(
-                "{:>12} {:#010x}: {}()",
-                "function",
-                entry.offset().0,
-                name
-            );
+            log::debug!("{:>12} {:#010x}: {}()", "function", entry.offset().0, name);
 
             // extract the parameters
             let (parameters, is_variadic) =
@@ -244,17 +238,17 @@ impl DwarfAnalyzer {
         entry: &gimli::DebuggingInformationEntry<reader::DwarfReader>,
     ) -> Option<String> {
         // linkage names
-        if let Ok(Some(attr)) = entry.attr(gimli::DW_AT_linkage_name) {
-            if let Some(name) = Self::read_attr_string(dwarf, unit, &attr) {
-                return Some(name);
-            }
+        if let Ok(Some(attr)) = entry.attr(gimli::DW_AT_linkage_name)
+            && let Some(name) = Self::read_attr_string(dwarf, unit, &attr)
+        {
+            return Some(name);
         }
 
         // regular names
-        if let Ok(Some(attr)) = entry.attr(gimli::DW_AT_name) {
-            if let Some(name) = Self::read_attr_string(dwarf, unit, &attr) {
-                return Some(name);
-            }
+        if let Ok(Some(attr)) = entry.attr(gimli::DW_AT_name)
+            && let Some(name) = Self::read_attr_string(dwarf, unit, &attr)
+        {
+            return Some(name);
         }
 
         None
@@ -276,11 +270,9 @@ impl DwarfAnalyzer {
         };
 
         let mut entries = unit.entries_at_offset(name_entry_offset).ok()?;
-        let Some((_, referenced)) = entries.next_dfs().ok()? else {
-            return None;
-        };
+        let (_, referenced) = (entries.next_dfs().ok()?)?;
 
-        Self::read_entry_name(dwarf, unit, &referenced)
+        Self::read_entry_name(dwarf, unit, referenced)
     }
 
     /// check if an attribute is a flag and is true
