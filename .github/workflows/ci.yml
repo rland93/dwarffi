@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  test:
+    name: integration tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        rust: [stable]
+
+    steps:
+    - name: checkout
+      uses: actions/checkout@v4
+
+    - name: rust toolchain
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ matrix.rust }}
+
+    - name: cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-registry-
+
+    - name: cache cargo index
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-git-
+
+    - name: cache cargo build
+      uses: actions/cache@v4
+      with:
+        path: target
+        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-build-target-
+
+    - name: install ubuntu GCC
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc build-essential
+
+    - name: build test C library
+      working-directory: dwarffi/test_c
+      run: |
+        make clean && make
+        # On macOS, explicitly create dSYM bundle for verification
+        if [ "${{ matrix.os }}" = "macos-latest" ]; then
+          dsymutil libtestlib.dylib
+        fi
+
+    - name: verify test library was built and debug symbols are available
+      working-directory: dwarffi/test_c
+      run: |
+        if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+          echo "Verifying Linux shared library..."
+          ls -la libtestlib.so
+          file libtestlib.so
+          echo "Checking for embedded debug symbols..."
+          readelf --debug-dump=info libtestlib.so | head -20 || echo "readelf not available"
+        else
+          echo "Verifying macOS dynamic library..."
+          ls -la libtestlib.dylib
+          file libtestlib.dylib
+          echo ""
+          echo "Verifying dSYM bundle was created..."
+          ls -la libtestlib.dylib.dSYM/Contents/Resources/DWARF/
+          file libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib
+          echo ""
+          echo "Checking DWARF debug info in dSYM bundle..."
+          dwarfdump --debug-info libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib | head -20
+        fi
+
+    - name: run workspace tests
+      run: cargo test --workspace --verbose
+
+    - name: run library tests
+      run: cargo test -p dwarffi --verbose
+
+    - name: run integration tests
+      run: cargo test -p dwarffi --test integration_test --verbose
+
+    - name: run type extraction tests
+      run: cargo test -p dwarffi --test test_type_extraction --verbose
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+    - name: checkout repository
+      uses: actions/checkout@v4
+
+    - name: rust toolchain
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: stable
+        components: clippy
+
+    - name: run clippy
+      run: cargo clippy --workspace --all-targets --all-features -- -D warnings
