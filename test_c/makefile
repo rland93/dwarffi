@@ -47,7 +47,7 @@ ifeq ($(UNAME_S),Linux)
 	@readelf --debug-dump=info $(LIB_NAME) | head -100
 else ifeq ($(UNAME_S),Darwin)
 	@echo "=== DWARF debug info summary ==="
-	@dwarfdump --debug-info $(LIB_NAME) | head -100
+	@dwarfdump -v $(LIB_NAME) | head -100
 endif
 
 info: $(LIB_NAME)

@@ -55,13 +55,13 @@ jobs:
           ${{ runner.os }}-cargo-build-target-
 
     - name: build test C library
-      working-directory: dwarffi/test_c
+      working-directory: test_c
       run: |
         make clean && make
         dsymutil libtestlib.dylib
 
     - name: verify test library and dSYM bundle
-      working-directory: dwarffi/test_c
+      working-directory: test_c
       run: |
         echo "Verifying macOS dynamic library..."
         ls -la libtestlib.dylib
@@ -102,7 +102,7 @@ jobs:
         sudo apt-get install -y gcc build-essential
 
     - name: build test C library
-      working-directory: dwarffi/test_c
+      working-directory: test_c
       run: make clean && make
 
     - name: run clippy

@@ -16,13 +16,13 @@ use std::process::Command;
 
 fn main() {
     // rerun build if the test C library source files change.
-    println!("cargo:rerun-if-changed=test_c/testlib.c");
-    println!("cargo:rerun-if-changed=test_c/testlib.h");
-    println!("cargo:rerun-if-changed=test_c/makefile");
+    println!("cargo:rerun-if-changed=../test_c/testlib.c");
+    println!("cargo:rerun-if-changed=../test_c/testlib.h");
+    println!("cargo:rerun-if-changed=../test_c/makefile");
 
     // build the test c library
     let status = Command::new("make")
-        .current_dir("test_c")
+        .current_dir("../test_c")
         .status()
         .expect("Failed to execute make - ensure make is installed");
 
@@ -33,7 +33,7 @@ fn main() {
     // macos -- dsymutil necessary to create dSYM bundle.
     #[cfg(target_os = "macos")]
     {
-        let dylib_path = "test_c/libtestlib.dylib";
+        let dylib_path = "../test_c/libtestlib.dylib";
         let result = Command::new("dsymutil").arg(dylib_path).status();
 
         match result {

@@ -5,7 +5,7 @@ use std::path::Path;
 fn test_extract_types_from_testlib() {
     // Load the test library (use dSYM bundle for DWARF info)
     let analyzer = DwarfAnalyzer::from_file(Path::new(
-        "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
+        "../test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
     ))
     .expect("Failed to load test library");
 
@@ -45,7 +45,7 @@ fn test_extract_types_from_testlib() {
 #[test]
 fn test_compare_with_string_extraction() {
     let analyzer = DwarfAnalyzer::from_file(Path::new(
-        "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
+        "../test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
     ))
     .expect("Failed to load test library");
 
@@ -76,7 +76,7 @@ fn test_no_dangling_references() {
     use std::collections::HashSet;
 
     let analyzer = DwarfAnalyzer::from_file(Path::new(
-        "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
+        "../test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
     ))
     .expect("Failed to load test library");
 
@@ -153,7 +153,7 @@ fn test_nested_type_closure() {
     use dwarffi::BaseTypeKind;
 
     let analyzer = DwarfAnalyzer::from_file(Path::new(
-        "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
+        "../test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
     ))
     .expect("Failed to load test library");
 
@@ -227,7 +227,7 @@ fn test_array_element_closure() {
     use dwarffi::BaseTypeKind;
 
     let analyzer = DwarfAnalyzer::from_file(Path::new(
-        "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
+        "../test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
     ))
     .expect("Failed to load test library");
 
@@ -292,7 +292,7 @@ fn test_typedef_chain_closure() {
     use dwarffi::BaseTypeKind;
 
     let analyzer = DwarfAnalyzer::from_file(Path::new(
-        "test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
+        "../test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
     ))
     .expect("Failed to load test library");
 
