@@ -90,7 +90,7 @@ fn main() -> Result<()> {
         unimplemented!("JSON output not yet implemented");
     } else if cli.js {
         // determine what to generate
-        let generate_types = cli.types || cli.functions || (!cli.types && !cli.functions);
+        let generate_types = true; // types always needed
         let generate_functions = cli.functions;
 
         // library path for function bindings
