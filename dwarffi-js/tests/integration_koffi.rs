@@ -63,7 +63,7 @@ fn test_koffi_bindings_end_to_end() {
     // run the Node.js tests with TAP output
     info!("Running Node.js test suite");
     let output = Command::new("node")
-        .args(&["--test", "--test-reporter=tap", "test.mjs"])
+        .args(["--test", "--test-reporter=tap", "test.mjs"])
         .current_dir(&temp_path)
         .output()
         .expect("Failed to execute Node.js tests");
@@ -246,7 +246,7 @@ fn generate_bindings(workspace_root: &Path) -> String {
     debug!("Generating bindings from: {:?}", testlib_path);
 
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--package",
             "dwarffi-js",
@@ -284,7 +284,7 @@ fn install_koffi(dir: &Path) {
 
     // run npm install koffi
     let status = Command::new("npm")
-        .args(&["install", "koffi", "--silent"])
+        .args(["install", "koffi", "--silent"])
         .current_dir(dir)
         .status()
         .expect("Failed to run npm install");
