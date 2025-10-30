@@ -31,7 +31,7 @@ test on.
     not an executable, but can be included in other (rust) projects as a static 
     library.
     
---> [`dwarffi-js`](./dwarffi-js) - CLI tool (Rust) installable via `cargo install`. Also, NPM
+--> [`dwarffi-js`](./dwarffi-js) - CLI tool (Rust) installable via `cargo install`. Also -- eventually -- NPM
     package, released via cargo-dist.
 
 dwarffi-js includes logic for generating bindings in Javascript using [ref-struct-di](https://github.com/node-ffi-napi/ref-struct-di), [ref-union-di](https://github.com/node-ffi-napi/ref-union-di), and [ref-napi](https://github.com/node-ffi-napi/ref-napi).
