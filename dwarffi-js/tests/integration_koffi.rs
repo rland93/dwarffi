@@ -237,10 +237,16 @@ fn build_test_library(workspace_root: &Path) {
 
 /// generate JavaScript bindings using dwarffi-js CLI
 fn generate_bindings(workspace_root: &Path) -> String {
-    let testlib_path = workspace_root.join("test_c").join("testlib.o");
+    let testlib_path = workspace_root
+        .join("test_c")
+        .join("libtestlib.dylib.dSYM")
+        .join("Contents")
+        .join("Resources")
+        .join("DWARF")
+        .join("libtestlib.dylib");
 
     if !testlib_path.exists() {
-        panic!("testlib.o not found: {:?}", testlib_path);
+        panic!("testlib dSYM not found: {:?}", testlib_path);
     }
 
     debug!("Generating bindings from: {:?}", testlib_path);
@@ -254,7 +260,6 @@ fn generate_bindings(workspace_root: &Path) -> String {
             testlib_path.to_str().unwrap(),
             "--js",
             "--functions",
-            "--all",
             "--library-path",
             "./libtestlib.dylib", // Will be updated to absolute path
         ])
