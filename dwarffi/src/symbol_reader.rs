@@ -26,11 +26,12 @@ impl<'data> SymbolReader<'data> {
         // try dynamic symbols first
         for symbol in self.object_file.dynamic_symbols() {
             dynamic_count += 1;
-            if symbol.is_definition() && symbol.kind() == object::SymbolKind::Text
-                && let Ok(name) = symbol.name() {
+            if symbol.is_definition() && symbol.kind() == object::SymbolKind::Text {
+                if let Ok(name) = symbol.name() {
                     log::trace!("symbol: {}", name);
                     symbols.insert(name.to_string());
                 }
+            }
         }
 
         log::debug!(
@@ -48,11 +49,12 @@ impl<'data> SymbolReader<'data> {
                 regular_count += 1;
                 if symbol.is_definition() && symbol.kind() == object::SymbolKind::Text {
                     // if global, then its exported.
-                    if symbol.is_global()
-                        && let Ok(name) = symbol.name() {
+                    if symbol.is_global() {
+                        if let Ok(name) = symbol.name() {
                             log::trace!("regular symbol: {}", name);
                             symbols.insert(name.to_string());
                         }
+                    }
                 }
             }
 
