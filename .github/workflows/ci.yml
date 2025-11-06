@@ -12,7 +12,7 @@ env:
 
 jobs:
   test:
-    name: integration tests (${{ matrix.os }})
+    name: Unit Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -71,20 +71,11 @@ jobs:
         ls -la libtestlib.dylib.dSYM/Contents/Resources/DWARF/
         file libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib
 
-    - name: run workspace tests
+    - name: run tests
       run: cargo test --workspace --verbose
 
-    - name: run library tests
-      run: cargo test -p dwarffi --verbose
-
-    - name: run integration tests
-      run: cargo test -p dwarffi --test integration_test --verbose
-
-    - name: run type extraction tests
-      run: cargo test -p dwarffi --test test_type_extraction --verbose
-
   js-integration:
-    name: JavaScript integration tests (macOS)
+    name: JavaScript Codegen Integration Tests (macOS)
     runs-on: macos-latest
     steps:
     - name: checkout
