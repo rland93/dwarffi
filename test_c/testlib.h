@@ -211,6 +211,34 @@ void process_fixed_array(int arr[10]);
 __attribute__((visibility("default")))
 void process_2d_array(int arr[5][5]);
 
+// internal function call scenarios
+// These test that functions calling other functions don't create duplicates
+
+__attribute__((visibility("default")))
+float calculate_rectangle_area(Rectangle* rect);
+
+__attribute__((visibility("default")))
+int compute_complex_value(int a, int b, int c);
+
+// function pointer callback scenarios
+// These test callback invocation patterns
+
+__attribute__((visibility("default")))
+int apply_operation(int a, int b, int (*operation)(int, int));
+
+__attribute__((visibility("default")))
+void invoke_with_status(Status status, void (*handler)(Status));
+
+// operation functions for callbacks
+__attribute__((visibility("default")))
+int add_operation(int a, int b);
+
+__attribute__((visibility("default")))
+int multiply_operation(int a, int b);
+
+__attribute__((visibility("default")))
+int subtract_operation(int a, int b);
+
 // internal/hidden functions
 
 // These are helper functions without visibility attribute
@@ -218,5 +246,6 @@ void process_2d_array(int arr[5][5]);
 void internal_helper(void);
 int internal_compute(int a, int b);
 void internal_process_data(const char* data, size_t len);
+int multiply_internal(int a, int b);
 
 #endif // TESTLIB_H

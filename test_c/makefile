@@ -1,6 +1,6 @@
 UNAME_S := $(shell uname -s)
 CC = gcc
-CFLAGS = -Wall -Wextra -fPIC -g -O0
+CFLAGS = -Wall -Wextra -fPIC -g -O0 -fvisibility=hidden
 
 ifeq ($(UNAME_S),Linux)
     LIB_NAME = libtestlib.so

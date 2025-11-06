@@ -36,6 +36,12 @@ void internal_process_data(const char *data, size_t len)
     }
 }
 
+int multiply_internal(int a, int b)
+{
+    // internal helper for multiplication
+    return a * b;
+}
+
 // exported api implementations
 
 void simple_void_function(void)
@@ -378,4 +384,57 @@ void process_2d_array(int arr[5][5])
             arr[i][j] = i * 5 + j;
         }
     }
+}
+
+// internal function call scenarios
+
+float calculate_rectangle_area(Rectangle *rect)
+{
+    if (!rect)
+        return 0.0f;
+    // calls internal helper function
+    return (float)multiply_internal((int)rect->width, (int)rect->height);
+}
+
+int compute_complex_value(int a, int b, int c)
+{
+    // calls multiple internal functions
+    int temp = internal_compute(a, b);
+    return multiply_internal(temp, c);
+}
+
+// function pointer callback scenarios
+
+int apply_operation(int a, int b, int (*operation)(int, int))
+{
+    if (!operation)
+        return 0;
+    // invokes the callback function pointer
+    return operation(a, b);
+}
+
+void invoke_with_status(Status status, void (*handler)(Status))
+{
+    if (handler)
+    {
+        // invokes the status handler callback
+        handler(status);
+    }
+}
+
+// operation functions for callbacks
+
+int add_operation(int a, int b)
+{
+    return a + b;
+}
+
+int multiply_operation(int a, int b)
+{
+    return multiply_internal(a, b);
+}
+
+int subtract_operation(int a, int b)
+{
+    return a - b;
 }

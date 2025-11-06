@@ -109,6 +109,12 @@ impl DwarfAnalyzer {
                 continue;
             }
 
+            // skip function declarations (keep only definitions)
+            if Self::attr_flag_is_true(entry.attr(gimli::DW_AT_declaration).ok().flatten()) {
+                log::trace!("skip function declaration at {:#010x}", entry.offset().0);
+                continue;
+            }
+
             function_count += 1;
 
             // skip no-name functions
