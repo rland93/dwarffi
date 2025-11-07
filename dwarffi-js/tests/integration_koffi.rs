@@ -1,3 +1,5 @@
+mod common;
+
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -227,8 +229,8 @@ fn build_test_library(workspace_root: &Path) {
         panic!("Failed to build test library");
     }
 
-    // verify the library was built
-    let lib_path = test_c_dir.join("libtestlib.dylib");
+    // verify the library was built (platform-specific)
+    let lib_path = common::get_test_dylib_path();
     if !lib_path.exists() {
         panic!("Test library not found after build: {:?}", lib_path);
     }
@@ -237,16 +239,11 @@ fn build_test_library(workspace_root: &Path) {
 
 /// generate JavaScript bindings using dwarffi-js CLI
 fn generate_bindings(workspace_root: &Path) -> String {
-    let testlib_path = workspace_root
-        .join("test_c")
-        .join("libtestlib.dylib.dSYM")
-        .join("Contents")
-        .join("Resources")
-        .join("DWARF")
-        .join("libtestlib.dylib");
+    // platform-specific path to DWARF debug info
+    let testlib_path = common::get_test_lib_path();
 
     if !testlib_path.exists() {
-        panic!("testlib dSYM not found: {:?}", testlib_path);
+        panic!("testlib debug info not found: {:?}", testlib_path);
     }
 
     debug!("Generating bindings from: {:?}", testlib_path);
@@ -261,7 +258,7 @@ fn generate_bindings(workspace_root: &Path) -> String {
             "--js",
             "--functions",
             "--library-path",
-            "./libtestlib.dylib", // Will be updated to absolute path
+            "./libtestlib.dylib", // TODO FIXME: make platform-specific?
         ])
         .current_dir(workspace_root)
         .output()
@@ -302,12 +299,11 @@ fn install_koffi(dir: &Path) {
 }
 
 /// update the LIBRARY_PATH constant in the generated bindings to use absolute path
-fn update_library_path(bindings_path: &Path, workspace_root: &Path) {
+fn update_library_path(bindings_path: &Path, _workspace_root: &Path) {
     let content = fs::read_to_string(bindings_path).expect("Failed to read bindings.js");
 
-    let lib_path = workspace_root
-        .join("test_c")
-        .join("libtestlib.dylib")
+    // platform-specific dylib path
+    let lib_path = common::get_test_dylib_path()
         .canonicalize()
         .expect("Failed to get absolute path for library");
 

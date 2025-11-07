@@ -1,13 +1,12 @@
+mod common;
+
 use dwarffi::DwarfAnalyzer;
-use std::path::Path;
 
 #[test]
 fn test_extract_types_from_testlib() {
     // Load the test library (use dSYM bundle for DWARF info)
-    let analyzer = DwarfAnalyzer::from_file(Path::new(
-        "../test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
-    ))
-    .expect("Failed to load test library");
+    let analyzer = DwarfAnalyzer::from_file(&common::get_test_lib_path())
+        .expect("Failed to load test library");
 
     // Extract analysis (exported functions only)
     let result = analyzer
@@ -44,10 +43,8 @@ fn test_extract_types_from_testlib() {
 
 #[test]
 fn test_compare_with_string_extraction() {
-    let analyzer = DwarfAnalyzer::from_file(Path::new(
-        "../test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
-    ))
-    .expect("Failed to load test library");
+    let analyzer = DwarfAnalyzer::from_file(&common::get_test_lib_path())
+        .expect("Failed to load test library");
 
     // Extract analysis
     let result = analyzer
@@ -75,10 +72,8 @@ fn test_no_dangling_references() {
     use dwarffi::{BaseTypeKind, TypeId};
     use std::collections::HashSet;
 
-    let analyzer = DwarfAnalyzer::from_file(Path::new(
-        "../test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
-    ))
-    .expect("Failed to load test library");
+    let analyzer = DwarfAnalyzer::from_file(&common::get_test_lib_path())
+        .expect("Failed to load test library");
 
     let result = analyzer
         .extract_analysis(true)
@@ -152,10 +147,8 @@ fn test_no_dangling_references() {
 fn test_nested_type_closure() {
     use dwarffi::BaseTypeKind;
 
-    let analyzer = DwarfAnalyzer::from_file(Path::new(
-        "../test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
-    ))
-    .expect("Failed to load test library");
+    let analyzer = DwarfAnalyzer::from_file(&common::get_test_lib_path())
+        .expect("Failed to load test library");
 
     let result = analyzer
         .extract_analysis(true)
@@ -226,10 +219,8 @@ fn test_nested_type_closure() {
 fn test_array_element_closure() {
     use dwarffi::BaseTypeKind;
 
-    let analyzer = DwarfAnalyzer::from_file(Path::new(
-        "../test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
-    ))
-    .expect("Failed to load test library");
+    let analyzer = DwarfAnalyzer::from_file(&common::get_test_lib_path())
+        .expect("Failed to load test library");
 
     let result = analyzer
         .extract_analysis(true)
@@ -291,10 +282,8 @@ fn test_array_element_closure() {
 fn test_typedef_chain_closure() {
     use dwarffi::BaseTypeKind;
 
-    let analyzer = DwarfAnalyzer::from_file(Path::new(
-        "../test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib",
-    ))
-    .expect("Failed to load test library");
+    let analyzer = DwarfAnalyzer::from_file(&common::get_test_lib_path())
+        .expect("Failed to load test library");
 
     let result = analyzer
         .extract_analysis(true)

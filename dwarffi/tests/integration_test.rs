@@ -1,24 +1,7 @@
+mod common;
+
 use dwarffi::DwarfAnalyzer;
 use std::path::PathBuf;
-
-/// get test library path per platform
-fn get_test_lib_path() -> PathBuf {
-    #[cfg(target_os = "macos")]
-    {
-        PathBuf::from("../test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib")
-    }
-    #[cfg(target_os = "linux")]
-    {
-        PathBuf::from("../test_c/libtestlib.so")
-    }
-}
-
-/// in macOS, the annotated library w/ DWARF info is stored in the dSYM bundle
-/// otherwise the binary is stripped of debug info.
-#[cfg(target_os = "macos")]
-fn get_dsym_path() -> PathBuf {
-    PathBuf::from("../test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib")
-}
 
 /// expected functions from test C lib.
 ///
@@ -73,14 +56,14 @@ const EXPECTED_SIGNATURES: &[&str] = &[
 #[test]
 /// load files
 fn test_load_object_file() {
-    let path = get_test_lib_path();
+    let path = common::get_test_lib_path();
     DwarfAnalyzer::from_file(&path).expect("fail to load object file");
 }
 
 #[test]
 /// load files
 fn test_load_shared_library() {
-    let path = get_test_lib_path();
+    let path = common::get_test_lib_path();
     DwarfAnalyzer::from_file(&path).expect("fail to load shared library");
 }
 
@@ -88,7 +71,7 @@ fn test_load_shared_library() {
 /// load files, dSYM on macOS
 #[cfg(target_os = "macos")]
 fn test_load_dsym() {
-    let path = get_dsym_path();
+    let path = common::get_test_lib_path();
     if path.exists() {
         DwarfAnalyzer::from_file(&path).expect("fail to load dSYM file");
     }
@@ -105,7 +88,7 @@ fn test_error_on_nonexistent_file() {
 #[test]
 /// accurately count functions in the test lib
 fn test_function_count_all() {
-    let path = get_test_lib_path();
+    let path = common::get_test_lib_path();
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
     let result = analyzer
         .extract_analysis(false)
@@ -122,7 +105,7 @@ fn test_function_count_all() {
 #[test]
 /// accurately count exported functions in the test lib
 fn test_function_count_exported() {
-    let path = get_test_lib_path();
+    let path = common::get_test_lib_path();
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
     let result = analyzer
         .extract_analysis(true)
@@ -144,7 +127,7 @@ fn test_function_count_exported() {
 /// go thru list of expected signatures (found above) and verify that
 /// the strings match. a little crude because this also tests to_string
 fn test_all_expected_signatures_present() {
-    let path = get_test_lib_path();
+    let path = common::get_test_lib_path();
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
     let result = analyzer
         .extract_analysis(false)
@@ -168,7 +151,7 @@ fn test_all_expected_signatures_present() {
 #[test]
 /// test simple void function signature
 fn test_simple_void_function_signature() {
-    let path = get_test_lib_path();
+    let path = common::get_test_lib_path();
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
     let result = analyzer
         .extract_analysis(false)
@@ -197,7 +180,7 @@ fn test_simple_void_function_signature() {
 #[test]
 /// test primitive parameters signature
 fn test_primitive_parameters_signature() {
-    let path = get_test_lib_path();
+    let path = common::get_test_lib_path();
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
     let result = analyzer
         .extract_analysis(false)
@@ -239,7 +222,7 @@ fn test_primitive_parameters_signature() {
 #[test]
 /// test pointer types signature
 fn test_pointer_types_signature() {
-    let path = get_test_lib_path();
+    let path = common::get_test_lib_path();
     let analyzer = DwarfAnalyzer::from_file(&path).expect("Failed to load test library");
     let result = analyzer
         .extract_analysis(false)
@@ -263,7 +246,7 @@ fn test_pointer_types_signature() {
 #[test]
 /// test struct types signature
 fn test_struct_types_signature() {
-    let path = get_test_lib_path();
+    let path = common::get_test_lib_path();
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
     let result = analyzer
         .extract_analysis(false)
@@ -291,7 +274,7 @@ fn test_struct_types_signature() {
 #[test]
 /// test nested struct types signature
 fn test_nested_struct_signature() {
-    let path = get_test_lib_path();
+    let path = common::get_test_lib_path();
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
     let result = analyzer
         .extract_analysis(false)
@@ -315,7 +298,7 @@ fn test_nested_struct_signature() {
 #[test]
 /// test opaque pointer types signature
 fn test_opaque_pointer_signature() {
-    let path = get_test_lib_path();
+    let path = common::get_test_lib_path();
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
     let result = analyzer
         .extract_analysis(false)
@@ -339,7 +322,7 @@ fn test_opaque_pointer_signature() {
 #[test]
 /// test enum types signature
 fn test_enum_types_signature() {
-    let path = get_test_lib_path();
+    let path = common::get_test_lib_path();
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
     let result = analyzer
         .extract_analysis(false)
@@ -362,7 +345,7 @@ fn test_enum_types_signature() {
 #[test]
 /// test enum types signature
 fn test_union_types_signature() {
-    let path = get_test_lib_path();
+    let path = common::get_test_lib_path();
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
     let result = analyzer
         .extract_analysis(false)
@@ -385,7 +368,7 @@ fn test_union_types_signature() {
 #[test]
 /// test double pointer types signature
 fn test_double_pointer_signature() {
-    let path = get_test_lib_path();
+    let path = common::get_test_lib_path();
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
     let result = analyzer
         .extract_analysis(false)
@@ -408,7 +391,7 @@ fn test_double_pointer_signature() {
 #[test]
 /// test double pointer types signature
 fn test_variadic_function_signature() {
-    let path = get_test_lib_path();
+    let path = common::get_test_lib_path();
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
     let result = analyzer
         .extract_analysis(false)
@@ -427,7 +410,7 @@ fn test_variadic_function_signature() {
 #[test]
 /// test double pointer types signature
 fn test_complex_function_signature() {
-    let path = get_test_lib_path();
+    let path = common::get_test_lib_path();
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
     let result = analyzer
         .extract_analysis(false)
@@ -480,7 +463,7 @@ fn test_complex_function_signature() {
 #[test]
 /// test function pointer parameter signature
 fn test_function_pointer_parameter_signature() {
-    let path = get_test_lib_path();
+    let path = common::get_test_lib_path();
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
     let result = analyzer
         .extract_analysis(false)
@@ -508,7 +491,7 @@ fn test_function_pointer_parameter_signature() {
 fn test_callback_typedef_resolution() {
     use dwarffi::type_registry::BaseTypeKind;
 
-    let path = get_test_lib_path();
+    let path = common::get_test_lib_path();
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
     let result = analyzer
         .extract_analysis(false)
@@ -609,7 +592,7 @@ fn test_callback_typedef_resolution() {
 fn test_comparator_typedef_resolution() {
     use dwarffi::type_registry::BaseTypeKind;
 
-    let path = get_test_lib_path();
+    let path = common::get_test_lib_path();
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
     let result = analyzer
         .extract_analysis(false)
@@ -712,7 +695,7 @@ fn test_comparator_typedef_resolution() {
 #[test]
 /// test function pointer formatting in signatures
 fn test_function_pointer_signature_formatting() {
-    let path = get_test_lib_path();
+    let path = common::get_test_lib_path();
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
     let result = analyzer
         .extract_analysis(false)
