@@ -4,7 +4,3 @@ debug
 **/*.rs.bk
 *.pdb
 **/mutants.out*/
-
-*.dylib
-*.o
-*.dylib.dSYM
