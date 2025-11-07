@@ -69,7 +69,8 @@ fn generate_header() -> String {
          // Do not edit manually!\n\
          // Backend: Koffi (https://koffi.dev)\n\
          //\n\
-         // `npm install koffi` in your project to use the generated bindings\n".to_string()
+         // `npm install koffi` in your project to use the generated bindings\n"
+        .to_string()
 }
 
 fn generate_imports() -> String {
@@ -140,12 +141,13 @@ fn collect_callbacks_from_type(
 
     // check if this is a function pointer (pointer to function)
     if type_.pointer_depth > 0
-        && let BaseTypeKind::Function { .. } = &type_.kind {
-            // this is a function pointer - but we need to find its typedef name
-            // look for a typedef that points to this function type
-            // for now, we'll handle typedefs to function pointers
-            return Ok(());
-        }
+        && let BaseTypeKind::Function { .. } = &type_.kind
+    {
+        // this is a function pointer - but we need to find its typedef name
+        // look for a typedef that points to this function type
+        // for now, we'll handle typedefs to function pointers
+        return Ok(());
+    }
 
     // check if this is a typedef to a function pointer
     if let BaseTypeKind::Typedef {
@@ -159,11 +161,12 @@ fn collect_callbacks_from_type(
 
         // check if typedef points to a function pointer
         if aliased.pointer_depth > 0
-            && let BaseTypeKind::Function { .. } = &aliased.kind {
-                // This is a typedef to a function pointer (e.g., "typedef void (*Callback)(...)")
-                callbacks.push((name.clone(), *aliased_type_id));
-                return Ok(());
-            }
+            && let BaseTypeKind::Function { .. } = &aliased.kind
+        {
+            // This is a typedef to a function pointer (e.g., "typedef void (*Callback)(...)")
+            callbacks.push((name.clone(), *aliased_type_id));
+            return Ok(());
+        }
     }
 
     // recursively check composite types
@@ -383,9 +386,10 @@ fn generate_type_definition(
 
     // skip if already generated
     if let Some(ref name) = type_name
-        && generated_names.contains(name) {
-            return Ok(String::new());
-        }
+        && generated_names.contains(name)
+    {
+        return Ok(String::new());
+    }
 
     let result = match &type_.kind {
         BaseTypeKind::Primitive { .. } => {
@@ -434,9 +438,11 @@ fn generate_type_definition(
 
     // mark as generated if successful
     if let Some(name) = type_name
-        && result.is_ok() && !result.as_ref().unwrap().is_empty() {
-            generated_names.insert(name);
-        }
+        && result.is_ok()
+        && !result.as_ref().unwrap().is_empty()
+    {
+        generated_names.insert(name);
+    }
 
     result
 }
@@ -466,13 +472,13 @@ fn generate_struct(
             && let BaseTypeKind::Enum {
                 name: enum_name, ..
             } = &type_.kind
-            {
-                output.push_str(&format!(
-                    "  {}: {},  // {} enum\n",
-                    field.name, field_type, enum_name
-                ));
-                continue;
-            }
+        {
+            output.push_str(&format!(
+                "  {}: {},  // {} enum\n",
+                field.name, field_type, enum_name
+            ));
+            continue;
+        }
 
         output.push_str(&format!("  {}: {},\n", field.name, field_type));
     }
@@ -562,9 +568,11 @@ fn generate_typedef(
 
             // if typedef aliases a named type that's already generated, just skip it
             if let Some(aliased) = aliased_name
-                && generated_names.contains(aliased) && aliased == name {
-                    return Ok(String::new());
-                }
+                && generated_names.contains(aliased)
+                && aliased == name
+            {
+                return Ok(String::new());
+            }
 
             // for Koffi, we don't need to create typedef aliases - just skip
             Ok(String::new())
@@ -642,14 +650,30 @@ fn type_to_koffi_string(type_registry: &TypeRegistry, type_id: TypeId) -> Result
         BaseTypeKind::Function { .. } => "'void *'".to_string(), // Function pointers as void*
     };
 
-    // add pointer stars
-    for _ in 0..type_.pointer_depth {
-        type_str.push_str(" *");
+    // insert pointer stars inside the string literal if type_str is quoted (e.g., 'void')
+    if type_str.starts_with("'") && type_str.ends_with("'") && type_.pointer_depth > 0 {
+        // Remove trailing quote
+        let mut s = type_str[..type_str.len() - 1].to_string();
+        for _ in 0..type_.pointer_depth {
+            s.push_str(" *");
+        }
+        s.push('\'');
+        type_str = s;
+    } else {
+        // fallback: append pointer stars outside
+        for _ in 0..type_.pointer_depth {
+            type_str.push_str(" *");
+        }
     }
 
     // add const if needed (for documentation, doesn't affect ABI)
-    if type_.is_const && type_.pointer_depth > 0 {
-        type_str = format!("'const {}", &type_str[1..]); // Replace opening quote with 'const
+    if type_.is_const
+        && type_.pointer_depth > 0
+        && type_str.starts_with("'")
+        && type_str.ends_with("'")
+    {
+        // Insert const after opening quote
+        type_str = format!("'const {}", &type_str[1..]);
     }
 
     Ok(type_str)
@@ -664,11 +688,11 @@ fn primitive_to_koffi(c_name: &str) -> Result<String> {
         "signed char" => "'char'",
         "unsigned char" => "'uchar'",
         "short" | "short int" | "signed short" | "signed short int" => "'short'",
-        "unsigned short" | "unsigned short int" => "'ushort'",
+        "unsigned short" | "unsigned short int" | "short unsigned int" => "'ushort'",
         "int" | "signed int" | "signed" => "'int'",
         "unsigned int" | "unsigned" => "'uint'",
         "long" | "long int" | "signed long" | "signed long int" => "'long'",
-        "unsigned long" | "unsigned long int" => "'ulong'",
+        "unsigned long" | "unsigned long int" | "long unsigned int" => "'ulong'",
         "long long" | "long long int" | "signed long long" | "signed long long int" => "'longlong'",
         "unsigned long long" | "unsigned long long int" => "'ulonglong'",
         "float" => "'float'",
@@ -859,11 +883,12 @@ fn type_to_koffi_c_string(type_registry: &TypeRegistry, type_id: TypeId) -> Resu
         if let Some(aliased_type) = aliased {
             // check if this typedef points to a function pointer
             if aliased_type.pointer_depth > 0
-                && let BaseTypeKind::Function { .. } = &aliased_type.kind {
-                    // this is a callback typedef (e.g., Callback, Comparator)
-                    // Koffi requires "Callback*" syntax when used as parameter
-                    return Ok(format!("{}*", name));
-                }
+                && let BaseTypeKind::Function { .. } = &aliased_type.kind
+            {
+                // this is a callback typedef (e.g., Callback, Comparator)
+                // Koffi requires "Callback*" syntax when used as parameter
+                return Ok(format!("{}*", name));
+            }
         }
     }
 

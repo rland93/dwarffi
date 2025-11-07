@@ -96,8 +96,8 @@ fn test_function_count_all() {
 
     assert_eq!(
         result.signatures.len(),
-        51,
-        "expect 51 functions, found {}",
+        52,
+        "expect 52 functions, found {}",
         result.signatures.len()
     );
 }
@@ -111,14 +111,14 @@ fn test_function_count_exported() {
         .extract_analysis(true)
         .expect("fail to extract analysis");
 
-    // 49 exported + 4 internal = 53 total in source
-    // 2 functions filtered as declarations, leaving 51
-    // When using exported_only=true with shared library, only exported symbols (47) are returned
+    // 50 exported + 4 internal = 54 total in source
+    // 2 functions filtered as declarations, leaving 52
+    // When using exported_only=true with shared library, only exported symbols (48) are returned
     // 4 internal functions (internal_helper, internal_compute, internal_process_data, and one more) are filtered out
     assert_eq!(
         result.signatures.len(),
-        47,
-        "Expected 47 exported functions in shared library, found {}",
+        48,
+        "Expected 48 exported functions in shared library, found {}",
         result.signatures.len()
     );
 }

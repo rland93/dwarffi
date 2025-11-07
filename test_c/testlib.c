@@ -217,6 +217,7 @@ Person *create_person(const char *name, int age)
         p->status = STATUS_OK;
         p->flags = 0;
         p->timestamp = 0;
+        p->userdata = NULL;
     }
     return p;
 }
@@ -231,6 +232,14 @@ void update_person_status(Person *p, Status new_status)
     if (p)
     {
         p->status = new_status;
+    }
+}
+
+void set_person_userdata(Person *p, void *data)
+{
+    if (p)
+    {
+        p->userdata = data;
     }
 }
 

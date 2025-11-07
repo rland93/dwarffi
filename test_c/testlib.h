@@ -48,6 +48,7 @@ typedef struct {
     Status status;
     uint8_t flags;
     int64_t timestamp;
+    void *userdata;
 } Person;
 
 // opaque types (forward declarations)
@@ -162,6 +163,9 @@ void destroy_person(Person* p);
 
 __attribute__((visibility("default")))
 void update_person_status(Person* p, Status new_status);
+
+__attribute__((visibility("default")))
+void set_person_userdata(Person* p, void* data);
 
 // opaque types
 __attribute__((visibility("default")))
