@@ -17,9 +17,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        # TODO: Fix Linux tests - currently failing due to DWARF format differences
-        # os: [ubuntu-latest, macos-latest]
-        os: [macos-latest]
+        os: [ubuntu-latest, macos-latest]
         rust: [stable]
 
     steps:
@@ -55,82 +53,23 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-cargo-build-target-
 
+    - name: install build dependencies (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc build-essential
+
     - name: build test C library
       working-directory: test_c
-      run: |
-        make clean && make
-        dsymutil libtestlib.dylib
+      run: make clean && make
 
-    - name: verify test library and dSYM bundle
+    - name: generate dSYM (macOS only)
+      if: runner.os == 'macOS'
       working-directory: test_c
-      run: |
-        echo "Verifying macOS dynamic library..."
-        ls -la libtestlib.dylib
-        file libtestlib.dylib
-        echo ""
-        echo "Verifying dSYM bundle..."
-        ls -la libtestlib.dylib.dSYM/Contents/Resources/DWARF/
-        file libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib
+      run: dsymutil libtestlib.dylib
 
     - name: run tests
       run: cargo test --workspace --verbose
-
-  js-integration:
-    name: JavaScript Codegen Integration Tests (macOS)
-    runs-on: macos-latest
-    steps:
-    - name: checkout
-      uses: actions/checkout@v4
-
-    - name: rust toolchain
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: stable
-
-    - name: setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-
-    - name: verify Node.js installation
-      run: |
-        node --version
-        npm --version
-
-    - name: cache cargo registry
-      uses: actions/cache@v4
-      with:
-        path: ~/.cargo/registry
-        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-registry-
-
-    - name: cache cargo index
-      uses: actions/cache@v4
-      with:
-        path: ~/.cargo/git
-        key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-git-
-
-    - name: cache cargo build
-      uses: actions/cache@v4
-      with:
-        path: target
-        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-build-target-
-
-    - name: build test C library
-      working-directory: test_c
-      run: |
-        make clean && make
-        dsymutil libtestlib.dylib
-
-    - name: run dwarffi-js integration tests
-      run: cargo test --package dwarffi-js --verbose
-      env:
-        RUST_LOG: info
 
   clippy:
     name: clippy
