@@ -244,17 +244,17 @@ impl DwarfAnalyzer {
         entry: &gimli::DebuggingInformationEntry<reader::DwarfReader>,
     ) -> Option<String> {
         // linkage names
-        if let Ok(Some(attr)) = entry.attr(gimli::DW_AT_linkage_name) {
-            if let Some(name) = Self::read_attr_string(dwarf, unit, &attr) {
-                return Some(name);
-            }
+        if let Ok(Some(attr)) = entry.attr(gimli::DW_AT_linkage_name)
+            && let Some(name) = Self::read_attr_string(dwarf, unit, &attr)
+        {
+            return Some(name);
         }
 
         // regular names
-        if let Ok(Some(attr)) = entry.attr(gimli::DW_AT_name) {
-            if let Some(name) = Self::read_attr_string(dwarf, unit, &attr) {
-                return Some(name);
-            }
+        if let Ok(Some(attr)) = entry.attr(gimli::DW_AT_name)
+            && let Some(name) = Self::read_attr_string(dwarf, unit, &attr)
+        {
+            return Some(name);
         }
 
         None

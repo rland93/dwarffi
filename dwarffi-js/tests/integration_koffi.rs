@@ -1,10 +1,15 @@
 mod common;
 
+#[cfg_attr(not(target_os = "macos"), allow(unused_imports))]
 use std::env;
+#[cfg_attr(not(target_os = "macos"), allow(unused_imports))]
 use std::fs;
+#[cfg_attr(not(target_os = "macos"), allow(unused_imports))]
 use std::path::{Path, PathBuf};
+#[cfg_attr(not(target_os = "macos"), allow(unused_imports))]
 use std::process::Command;
 
+#[cfg_attr(not(target_os = "macos"), allow(unused_imports))]
 use log::{debug, error, info, warn};
 
 #[test]
@@ -172,6 +177,7 @@ fn test_koffi_bindings_end_to_end() {
 /// input: "1 - test description" or "1 - test description # SKIP reason"
 ///
 /// output: (test_number, description)
+#[cfg(target_os = "macos")]
 fn parse_test_line(line: &str) -> (usize, &str) {
     let line = line.trim();
 
@@ -201,6 +207,7 @@ fn parse_test_line(line: &str) -> (usize, &str) {
 }
 
 /// get the workspace root directory (dwarffi/)
+#[cfg(target_os = "macos")]
 fn get_workspace_root() -> PathBuf {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     PathBuf::from(manifest_dir)
@@ -210,6 +217,7 @@ fn get_workspace_root() -> PathBuf {
 }
 
 /// build the C test library using make
+#[cfg(target_os = "macos")]
 fn build_test_library(workspace_root: &Path) {
     let test_c_dir = workspace_root.join("test_c");
     debug!("Building C library in: {:?}", test_c_dir);
@@ -238,6 +246,7 @@ fn build_test_library(workspace_root: &Path) {
 }
 
 /// generate JavaScript bindings using dwarffi-js CLI
+#[cfg(target_os = "macos")]
 fn generate_bindings(workspace_root: &Path) -> String {
     // platform-specific path to DWARF debug info
     let testlib_path = common::get_test_lib_path();
@@ -276,6 +285,7 @@ fn generate_bindings(workspace_root: &Path) -> String {
 }
 
 /// install koffi package using npm
+#[cfg(target_os = "macos")]
 fn install_koffi(dir: &Path) {
     // Check if npm is available
     if Command::new("npm").arg("--version").output().is_err() {
@@ -299,6 +309,7 @@ fn install_koffi(dir: &Path) {
 }
 
 /// update the LIBRARY_PATH constant in the generated bindings to use absolute path
+#[cfg(target_os = "macos")]
 fn update_library_path(bindings_path: &Path, _workspace_root: &Path) {
     let content = fs::read_to_string(bindings_path).expect("Failed to read bindings.js");
 
