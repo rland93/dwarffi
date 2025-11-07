@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 /// # On macOS only:
 /// dsymutil test_c/libtestlib.dylib
 /// ```
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn get_test_lib_path() -> PathBuf {
     let path = get_test_lib_path_unchecked();
 

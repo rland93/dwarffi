@@ -1,6 +1,7 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FfiBackend {
     /// koffi
+    #[default]
     Koffi,
     /// ref-napi + ffi-napi
     RefNapi,
@@ -20,11 +21,5 @@ impl FfiBackend {
             Self::Koffi => "koffi",
             Self::RefNapi => "ref-napi",
         }
-    }
-}
-
-impl Default for FfiBackend {
-    fn default() -> Self {
-        Self::Koffi
     }
 }
