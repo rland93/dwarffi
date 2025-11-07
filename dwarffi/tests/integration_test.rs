@@ -5,7 +5,7 @@ use std::path::PathBuf;
 fn get_test_lib_path() -> PathBuf {
     #[cfg(target_os = "macos")]
     {
-        PathBuf::from("../test_c/libtestlib.dylib")
+        PathBuf::from("../test_c/libtestlib.dylib.dSYM/Contents/Resources/DWARF/libtestlib.dylib")
     }
     #[cfg(target_os = "linux")]
     {
