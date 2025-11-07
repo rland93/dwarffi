@@ -305,30 +305,25 @@ impl DwarfAnalyzer {
         unit: &gimli::Unit<reader::DwarfReader>,
         attr: &gimli::Attribute<reader::DwarfReader>,
     ) -> Option<String> {
-        // reader of bytes
-        let attribute_string = match dwarf.attr_string(unit, attr.value()) {
-            Ok(value) => value,
-            Err(err) => {
-                log::trace!("failed to load attribute string: {}", err);
-                return None;
-            }
-        };
-
-        // to byte slice
-        let bytes = match attribute_string.to_slice() {
-            Ok(slice) => slice,
-            Err(err) => {
-                log::trace!("failed to read attribute bytes: {}", err);
-                return None;
-            }
-        };
-
-        // parse as string
-        match String::from_utf8(bytes.to_vec()) {
-            Ok(text) => Some(text),
-            Err(err) => {
-                log::trace!("attribute string is not valid UTF-8: {}", err);
-                None
+        match attr.value() {
+            // DWARF 5 may inline strings
+            AttributeValue::String(s) => match s.to_string_lossy() {
+                Ok(cow) => Some(cow.to_string()),
+                Err(e) => {
+                    log::warn!("failed to decode inline string: {:?}", e);
+                    None
+                }
+            },
+            // older versions do a string reference to .debug_str section
+            _ => {
+                let r = dwarf.attr_string(unit, attr.value()).ok()?;
+                match r.to_string_lossy() {
+                    Ok(cow) => Some(cow.to_string()),
+                    Err(e) => {
+                        log::warn!("failed to decode string reference: {:?}", e);
+                        None
+                    }
+                }
             }
         }
     }

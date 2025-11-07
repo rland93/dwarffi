@@ -32,6 +32,11 @@ pub fn object_section_loader(
         let section_name = id.name();
         let section_data = match object_file.section_by_name(section_name) {
             Some(section) => {
+                log::debug!(
+                    "load section: {} (size: {} bytes)",
+                    section_name,
+                    section.size()
+                );
                 match section.uncompressed_data() {
                     Ok(data) => data,
                     // could not decompress
@@ -42,7 +47,10 @@ pub fn object_section_loader(
                 }
             }
             // name does not exist
-            None => std::borrow::Cow::Borrowed(&[][..]),
+            None => {
+                log::debug!("section not found: {}", section_name);
+                std::borrow::Cow::Borrowed(&[][..])
+            }
         };
 
         // copies out of section data
