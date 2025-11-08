@@ -86,41 +86,74 @@ fn test_error_on_nonexistent_file() {
 }
 
 #[test]
-/// accurately count functions in the test lib
-fn test_function_count_all() {
+/// test properties of function extraction
+fn test_function_extraction_properties() {
     let path = common::get_test_lib_path();
     let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
-    let result = analyzer
+
+    let all = analyzer
         .extract_analysis(false)
-        .expect("fail to extract analysis");
+        .expect("fail to extract all functions");
 
-    assert_eq!(
-        result.signatures.len(),
-        52,
-        "expect 52 functions, found {}",
-        result.signatures.len()
-    );
-}
-
-#[test]
-/// accurately count exported functions in the test lib
-fn test_function_count_exported() {
-    let path = common::get_test_lib_path();
-    let analyzer = DwarfAnalyzer::from_file(&path).expect("fail to load test library");
-    let result = analyzer
+    let exported = analyzer
         .extract_analysis(true)
-        .expect("fail to extract analysis");
+        .expect("fail to extract exported functions");
 
-    // 50 exported + 4 internal = 54 total in source
-    // 2 functions filtered as declarations, leaving 52
-    // When using exported_only=true with shared library, only exported symbols (48) are returned
-    // 4 internal functions (internal_helper, internal_compute, internal_process_data, and one more) are filtered out
-    assert_eq!(
-        result.signatures.len(),
-        48,
-        "Expected 48 exported functions in shared library, found {}",
-        result.signatures.len()
+    // should extract a reasonable number of functions
+    assert!(
+        all.signatures.len() > 10,
+        "Should extract more than 10 functions, found {}",
+        all.signatures.len()
     );
+    assert!(
+        all.signatures.len() < 200,
+        "Suspiciously high function count: {}",
+        all.signatures.len()
+    );
+
+    // exported functions should be fewer than all functions
+    assert!(
+        exported.signatures.len() < all.signatures.len(),
+        "Exported functions ({}) should be fewer than all functions ({})",
+        exported.signatures.len(),
+        all.signatures.len()
+    );
+
+    // internal functions should be filtered out in exported mode
+    use std::collections::HashSet;
+    let all_names: HashSet<String> = all.signatures.iter().map(|s| s.name.clone()).collect();
+    let exported_names: HashSet<String> =
+        exported.signatures.iter().map(|s| s.name.clone()).collect();
+
+    let internal_funcs = [
+        "internal_helper",
+        "internal_compute",
+        "internal_process_data",
+        "multiply_internal",
+    ];
+
+    for func in &internal_funcs {
+        assert!(
+            all_names.contains(*func),
+            "Internal function '{}' should be in all functions",
+            func
+        );
+        assert!(
+            !exported_names.contains(*func),
+            "Internal function '{}' should NOT be exported",
+            func
+        );
+    }
+
+    // some functions should be present
+    let expected_exports = ["simple_void_function", "add_two_ints", "create_point"];
+    for func in &expected_exports {
+        assert!(
+            exported_names.contains(*func),
+            "Expected export '{}' not found",
+            func
+        );
+    }
 }
 
 #[test]

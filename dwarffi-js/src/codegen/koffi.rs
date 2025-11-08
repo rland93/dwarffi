@@ -679,26 +679,28 @@ fn type_to_koffi_string(type_registry: &TypeRegistry, type_id: TypeId) -> Result
     Ok(type_str)
 }
 
-/// map C primitive type names to Koffi type strings
+/// map C primitive type names to Koffi type strings. Note DWARF normalizes
+/// type names so these are a subset of what's possible in C code.
 fn primitive_to_koffi(c_name: &str) -> Result<String> {
     let koffi_type = match c_name {
         "void" => "'void'",
-        "bool" | "_Bool" => "'bool'",
+        "_Bool" => "'bool'",
         "char" => "'char'",
         "signed char" => "'char'",
         "unsigned char" => "'uchar'",
-        "short" | "short int" | "signed short" | "signed short int" => "'short'",
-        "unsigned short" | "unsigned short int" | "short unsigned int" => "'ushort'",
-        "int" | "signed int" | "signed" => "'int'",
-        "unsigned int" | "unsigned" => "'uint'",
-        "long" | "long int" | "signed long" | "signed long int" => "'long'",
-        "unsigned long" | "unsigned long int" | "long unsigned int" => "'ulong'",
-        "long long" | "long long int" | "signed long long" | "signed long long int" => "'longlong'",
-        "unsigned long long" | "unsigned long long int" => "'ulonglong'",
+        "short" => "'short'",
+        "unsigned short" => "'ushort'",
+        "int" => "'int'",
+        "unsigned int" => "'uint'",
+        "long" => "'long'",
+        "unsigned long" => "'ulong'",
+        "long long" => "'longlong'",
+        "unsigned long long" => "'ulonglong'",
         "float" => "'float'",
         "double" => "'double'",
-        "long double" => "'double'", // map to double
-        // fixed-width types
+        "long double" => "'double'",
+
+        // fixed-width integer types (from <stdint.h>)
         "int8_t" => "'int8_t'",
         "uint8_t" => "'uint8_t'",
         "int16_t" => "'int16_t'",
@@ -707,13 +709,16 @@ fn primitive_to_koffi(c_name: &str) -> Result<String> {
         "uint32_t" => "'uint32_t'",
         "int64_t" => "'int64_t'",
         "uint64_t" => "'uint64_t'",
+
+        // standard library types (from <stddef.h>)
         "size_t" => "'size_t'",
         "ssize_t" => "'int64_t'",
         "ptrdiff_t" => "'int64_t'",
         "intptr_t" => "'int64_t'",
         "uintptr_t" => "'uint64_t'",
+
         _ => {
-            return Err(anyhow!("Unknown primitive type for Koffi: {}", c_name));
+            return Err(anyhow!("unknown primitive type for Koffi: {}", c_name));
         }
     };
 
@@ -893,7 +898,16 @@ fn type_to_koffi_c_string(type_registry: &TypeRegistry, type_id: TypeId) -> Resu
     }
 
     let mut type_str = match &type_.kind {
-        BaseTypeKind::Primitive { name, .. } => name.clone(),
+        BaseTypeKind::Primitive { name, .. } => {
+            // map DWARF type names to Koffi-compatible C type names
+            // Koffi has specific expectations for type names in function signatures
+            match name.as_str() {
+                "_Bool" => "bool".to_string(),
+                "signed char" => "char".to_string(),
+                "long double" => "double".to_string(),
+                _ => name.clone(),
+            }
+        }
         BaseTypeKind::Struct { name, .. } => name.clone(),
         BaseTypeKind::Union { name, .. } => name.clone(),
         BaseTypeKind::Enum { backing_id, .. } => {
@@ -1027,4 +1041,145 @@ fn generate_exports(
     output.push_str("}\n");
 
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_primitive_to_koffi_void() {
+        assert_eq!(primitive_to_koffi("void").unwrap(), "'void'");
+    }
+
+    #[test]
+    fn test_primitive_to_koffi_boolean() {
+        assert_eq!(primitive_to_koffi("_Bool").unwrap(), "'bool'");
+    }
+
+    #[test]
+    fn test_primitive_to_koffi_char_types() {
+        assert_eq!(primitive_to_koffi("char").unwrap(), "'char'");
+        assert_eq!(primitive_to_koffi("signed char").unwrap(), "'char'");
+        assert_eq!(primitive_to_koffi("unsigned char").unwrap(), "'uchar'");
+    }
+
+    #[test]
+    fn test_primitive_to_koffi_short_types() {
+        assert_eq!(primitive_to_koffi("short").unwrap(), "'short'");
+        assert_eq!(primitive_to_koffi("unsigned short").unwrap(), "'ushort'");
+    }
+
+    #[test]
+    fn test_primitive_to_koffi_int_types() {
+        assert_eq!(primitive_to_koffi("int").unwrap(), "'int'");
+        assert_eq!(primitive_to_koffi("unsigned int").unwrap(), "'uint'");
+    }
+
+    #[test]
+    fn test_primitive_to_koffi_long_types() {
+        assert_eq!(primitive_to_koffi("long").unwrap(), "'long'");
+        assert_eq!(primitive_to_koffi("unsigned long").unwrap(), "'ulong'");
+    }
+
+    #[test]
+    fn test_primitive_to_koffi_long_long_types() {
+        assert_eq!(primitive_to_koffi("long long").unwrap(), "'longlong'");
+        assert_eq!(
+            primitive_to_koffi("unsigned long long").unwrap(),
+            "'ulonglong'"
+        );
+    }
+
+    #[test]
+    fn test_primitive_to_koffi_floating_point() {
+        assert_eq!(primitive_to_koffi("float").unwrap(), "'float'");
+        assert_eq!(primitive_to_koffi("double").unwrap(), "'double'");
+        // long double maps to double (Koffi limitation)
+        assert_eq!(primitive_to_koffi("long double").unwrap(), "'double'");
+    }
+
+    #[test]
+    fn test_primitive_to_koffi_fixed_width_types() {
+        assert_eq!(primitive_to_koffi("int8_t").unwrap(), "'int8_t'");
+        assert_eq!(primitive_to_koffi("uint8_t").unwrap(), "'uint8_t'");
+        assert_eq!(primitive_to_koffi("int16_t").unwrap(), "'int16_t'");
+        assert_eq!(primitive_to_koffi("uint16_t").unwrap(), "'uint16_t'");
+        assert_eq!(primitive_to_koffi("int32_t").unwrap(), "'int32_t'");
+        assert_eq!(primitive_to_koffi("uint32_t").unwrap(), "'uint32_t'");
+        assert_eq!(primitive_to_koffi("int64_t").unwrap(), "'int64_t'");
+        assert_eq!(primitive_to_koffi("uint64_t").unwrap(), "'uint64_t'");
+    }
+
+    #[test]
+    fn test_primitive_to_koffi_stddef_types() {
+        assert_eq!(primitive_to_koffi("size_t").unwrap(), "'size_t'");
+        assert_eq!(primitive_to_koffi("ssize_t").unwrap(), "'int64_t'");
+        assert_eq!(primitive_to_koffi("ptrdiff_t").unwrap(), "'int64_t'");
+        assert_eq!(primitive_to_koffi("intptr_t").unwrap(), "'int64_t'");
+        assert_eq!(primitive_to_koffi("uintptr_t").unwrap(), "'uint64_t'");
+    }
+
+    #[test]
+    fn test_primitive_to_koffi_rejects_unnormalized_variants() {
+        // These are variants that DWARF never produces (already normalized by compiler)
+        // The function should reject them since they won't appear in practice
+        assert!(primitive_to_koffi("short int").is_err());
+        assert!(primitive_to_koffi("signed short").is_err());
+        assert!(primitive_to_koffi("signed short int").is_err());
+        assert!(primitive_to_koffi("unsigned short int").is_err());
+        assert!(primitive_to_koffi("short unsigned int").is_err());
+        assert!(primitive_to_koffi("long int").is_err());
+        assert!(primitive_to_koffi("signed long").is_err());
+        assert!(primitive_to_koffi("signed long int").is_err());
+        assert!(primitive_to_koffi("unsigned long int").is_err());
+        assert!(primitive_to_koffi("long unsigned int").is_err());
+        assert!(primitive_to_koffi("long long int").is_err());
+        assert!(primitive_to_koffi("signed long long").is_err());
+        assert!(primitive_to_koffi("signed long long int").is_err());
+        assert!(primitive_to_koffi("unsigned long long int").is_err());
+        assert!(primitive_to_koffi("signed int").is_err());
+        assert!(primitive_to_koffi("signed").is_err());
+        assert!(primitive_to_koffi("unsigned").is_err());
+    }
+
+    #[test]
+    fn test_primitive_to_koffi_rejects_unknown_types() {
+        assert!(primitive_to_koffi("unknown_type").is_err());
+        assert!(primitive_to_koffi("string").is_err());
+        assert!(primitive_to_koffi("bool").is_err()); // should be _Bool
+    }
+
+    /// Test that covers all types that DWARF actually produces.
+    /// This list is based on analysis of GCC/Clang DWARF output.
+    #[test]
+    fn test_primitive_to_koffi_all_dwarf_types() {
+        // All the types that DWARF base_type entries actually contain
+        let dwarf_types = vec![
+            "void",
+            "_Bool",
+            "char",
+            "signed char",
+            "unsigned char",
+            "short",
+            "unsigned short",
+            "int",
+            "unsigned int",
+            "long",
+            "unsigned long",
+            "long long",
+            "unsigned long long",
+            "float",
+            "double",
+            "long double",
+        ];
+
+        for type_name in dwarf_types {
+            assert!(
+                primitive_to_koffi(type_name).is_ok(),
+                "Failed to map DWARF type: {}",
+                type_name
+            );
+        }
+    }
 }

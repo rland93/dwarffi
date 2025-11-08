@@ -66,6 +66,14 @@ pub fn get_test_lib_dir() -> PathBuf {
         .join("test_c")
 }
 
+/// get the workspace root directory (dwarffi/)
+pub fn get_workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("Failed to get parent directory")
+        .to_path_buf()
+}
+
 /// return the path to the dynamic library for FFI loading (not debug symbols).
 ///
 /// macOS -> .dylib file.

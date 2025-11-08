@@ -86,7 +86,52 @@ float multiply_floats(float a, float b);
 __attribute__((visibility("default")))
 double compute_double(double x, double y, double z);
 
-// different integer types
+// different integer types - comprehensive coverage
+__attribute__((visibility("default")))
+char get_char(void);
+
+__attribute__((visibility("default")))
+signed char get_signed_char(void);
+
+__attribute__((visibility("default")))
+unsigned char get_unsigned_char(void);
+
+__attribute__((visibility("default")))
+short get_short(void);
+
+__attribute__((visibility("default")))
+unsigned short get_unsigned_short(void);
+
+__attribute__((visibility("default")))
+int get_int(void);
+
+__attribute__((visibility("default")))
+unsigned int get_unsigned_int(void);
+
+__attribute__((visibility("default")))
+long get_long(void);
+
+__attribute__((visibility("default")))
+unsigned long get_unsigned_long(void);
+
+__attribute__((visibility("default")))
+long long get_long_long(void);
+
+__attribute__((visibility("default")))
+unsigned long long get_unsigned_long_long(void);
+
+__attribute__((visibility("default")))
+float get_float(void);
+
+__attribute__((visibility("default")))
+double get_double(void);
+
+__attribute__((visibility("default")))
+long double get_long_double(void);
+
+__attribute__((visibility("default")))
+_Bool get_bool(void);
+
 __attribute__((visibility("default")))
 uint8_t process_byte(uint8_t value);
 

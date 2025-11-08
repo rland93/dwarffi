@@ -69,6 +69,81 @@ double compute_double(double x, double y, double z)
     return (x + y) * z;
 }
 
+char get_char(void)
+{
+    return 'A';
+}
+
+signed char get_signed_char(void)
+{
+    return -42;
+}
+
+unsigned char get_unsigned_char(void)
+{
+    return 255;
+}
+
+short get_short(void)
+{
+    return -1000;
+}
+
+unsigned short get_unsigned_short(void)
+{
+    return 60000;
+}
+
+int get_int(void)
+{
+    return 42;
+}
+
+unsigned int get_unsigned_int(void)
+{
+    return 4294967295U;
+}
+
+long get_long(void)
+{
+    return -123456789L;
+}
+
+unsigned long get_unsigned_long(void)
+{
+    return 9876543210UL;
+}
+
+long long get_long_long(void)
+{
+    return -9223372036854775807LL;
+}
+
+unsigned long long get_unsigned_long_long(void)
+{
+    return 18446744073709551615ULL;
+}
+
+float get_float(void)
+{
+    return 3.14159f;
+}
+
+double get_double(void)
+{
+    return 2.71828;
+}
+
+long double get_long_double(void)
+{
+    return 1.41421356237L;
+}
+
+_Bool get_bool(void)
+{
+    return 1;
+}
+
 uint8_t process_byte(uint8_t value)
 {
     return value ^ 0xFF;
