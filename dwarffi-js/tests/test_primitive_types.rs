@@ -7,8 +7,13 @@
 ///    successfully mapped to Koffi types
 mod common;
 
+#[cfg(target_os = "macos")]
 use dwarffi::{BaseTypeKind, DwarfAnalyzer};
+
+#[cfg(target_os = "macos")]
 use std::collections::HashSet;
+
+#[cfg(target_os = "macos")]
 use std::process::Command;
 
 #[test]
