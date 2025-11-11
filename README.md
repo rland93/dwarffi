@@ -38,3 +38,19 @@ have a windows machine.
     package, released via cargo-dist.
 
 dwarffi-js can generate bindings in Javascript using [koffi](https://koffi.dev/)
+
+## other stuff
+
+run tests. you have to comopile the test_c library because there are some integration tests included that rely on generated files. this means you have to have a compiler on your system.
+
+```bash
+cd test_c && make
+# then
+cargo test
+```
+
+coverage: 
+```bash
+cargo llvm-cov --workspace --html --output-dir coverage
+```
+

@@ -4,3 +4,11 @@ debug
 **/*.rs.bk
 *.pdb
 **/mutants.out*/
+
+# Coverage reports
+target/llvm-cov-target/
+target/llvm-cov/
+*.profraw
+*.profdata
+lcov.info
+coverage
