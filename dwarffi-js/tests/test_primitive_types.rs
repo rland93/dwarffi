@@ -52,17 +52,17 @@ fn test_all_primitive_types_from_test_library() {
 
     for sig in &signatures {
         // Check return type
-        if let Some(type_info) = type_registry.get_type(sig.return_type_id) {
-            if let BaseTypeKind::Primitive { name, .. } = &type_info.kind {
-                primitive_types.insert(name.clone());
-            }
+        if let Some(type_info) = type_registry.get_type(sig.return_type_id)
+            && let BaseTypeKind::Primitive { name, .. } = &type_info.kind
+        {
+            primitive_types.insert(name.clone());
         }
 
         for param in &sig.parameters {
-            if let Some(type_info) = type_registry.get_type(param.type_id) {
-                if let BaseTypeKind::Primitive { name, .. } = &type_info.kind {
-                    primitive_types.insert(name.clone());
-                }
+            if let Some(type_info) = type_registry.get_type(param.type_id)
+                && let BaseTypeKind::Primitive { name, .. } = &type_info.kind
+            {
+                primitive_types.insert(name.clone());
             }
         }
     }
@@ -142,7 +142,6 @@ fn test_comprehensive_primitive_coverage() {
         .extract_analysis(true) // only exported functions
         .expect("Failed to extract analysis");
 
-    let type_registry = analysis.type_registry;
     let signatures = analysis.signatures;
 
     let expected_functions = vec![
