@@ -27,7 +27,7 @@ struct Cli {
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
 
-    /// output JavaScript bindings using ref-struct-di
+    /// output JavaScript bindings using Koffi FFI
     #[arg(long)]
     js: bool,
 
@@ -42,10 +42,6 @@ struct Cli {
     /// library path to use in generated bindings (e.g., ./libtestlib.dylib)
     #[arg(long)]
     library_path: Option<String>,
-
-    /// FFI backend to use for JavaScript generation (koffi or ref-napi)
-    #[arg(long, default_value = "koffi", value_parser = ["koffi", "ref-napi"])]
-    ffi_backend: String,
 
     /// output JSON representation of types and functions
     #[arg(short = 'j', long)]
@@ -103,18 +99,14 @@ fn main() -> Result<()> {
                 .unwrap_or_else(|| "./library.dylib".to_string())
         });
 
-        // parse FFI backend
-        let backend = FfiBackend::from_str(&cli.ffi_backend)
-            .unwrap_or_else(|| panic!("Invalid FFI backend: {}", cli.ffi_backend));
-
-        // generate JavaScript bindings
+        // generate JavaScript bindings using Koffi
         let js_code = JsCodegen::generate_module(
             &result.type_registry,
             &sorted_sigs,
             generate_types,
             generate_functions,
             &library_path,
-            backend,
+            FfiBackend::default(), // Always use Koffi
         )?;
         println!("{}", js_code);
     } else {

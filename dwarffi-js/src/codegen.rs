@@ -2,7 +2,6 @@
 pub mod backend;
 pub mod js;
 mod koffi;
-mod ref_napi;
 
 pub use backend::FfiBackend;
 pub use js::JsCodegen;

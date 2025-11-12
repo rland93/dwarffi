@@ -1,25 +1,8 @@
+/// FFI backend for JavaScript code generation
+/// Currently only Koffi is supported, but this abstraction allows for future backends
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FfiBackend {
-    /// koffi
+    /// Koffi FFI backend
     #[default]
     Koffi,
-    /// ref-napi + ffi-napi
-    RefNapi,
-}
-
-impl FfiBackend {
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "koffi" => Some(Self::Koffi),
-            "ref-napi" => Some(Self::RefNapi),
-            _ => None,
-        }
-    }
-
-    pub fn _as_str(&self) -> &'static str {
-        match self {
-            Self::Koffi => "koffi",
-            Self::RefNapi => "ref-napi",
-        }
-    }
 }

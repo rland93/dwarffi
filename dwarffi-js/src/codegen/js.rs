@@ -1,9 +1,9 @@
-/// dispatch code-gen either to koffi or ref-napi backend
+/// JavaScript code generation dispatch
 use anyhow::Result;
 use dwarffi::{FunctionSignature, TypeRegistry};
 
 use super::backend::FfiBackend;
-use super::{koffi, ref_napi};
+use super::koffi;
 
 pub struct JsCodegen;
 
@@ -14,23 +14,15 @@ impl JsCodegen {
         generate_types: bool,
         generate_functions: bool,
         library_path: &str,
-        backend: FfiBackend,
+        _backend: FfiBackend,
     ) -> Result<String> {
-        match backend {
-            FfiBackend::Koffi => koffi::generate(
-                type_registry,
-                functions,
-                generate_types,
-                generate_functions,
-                library_path,
-            ),
-            FfiBackend::RefNapi => ref_napi::generate(
-                type_registry,
-                functions,
-                generate_types,
-                generate_functions,
-                library_path,
-            ),
-        }
+        // Currently only Koffi is supported
+        koffi::generate(
+            type_registry,
+            functions,
+            generate_types,
+            generate_functions,
+            library_path,
+        )
     }
 }
